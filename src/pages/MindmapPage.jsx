@@ -1,15 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { motion, useMotionValue, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '../store/useAppStore'
-import { getUrgencyInfo, getBubbleStyle, sortByUrgency } from '../utils/urgency'
+import { getUrgencyInfo, getBubbleStyle } from '../utils/urgency'
 
 // ─── BubbleNode ───────────────────────────────────────────────────────────────
+// Pure pointer-event drag — bypasses framer-motion drag to avoid stopPropagation conflicts
 function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, onSelect }) {
   const { updatePosition, updateChunk } = useAppStore()
   const allItems = useAppStore((s) => s.items)
-  const bx = useMotionValue(0)
-  const by = useMotionValue(0)
-  const hasDragged = useRef(false)
+  const [dragDelta, setDragDelta] = useState({ x: 0, y: 0 })
+  const dragging = useRef(false)
 
   const { level } = getUrgencyInfo(item.deadline)
   const bStyle = getBubbleStyle(level)
@@ -37,59 +37,89 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
     }
   }, [allItems, updateChunk])
 
+  const handlePointerDown = useCallback((e) => {
+    e.stopPropagation()   // prevent canvas pan
+    onSelect()
+    onDragStart()
+
+    const startX = e.clientX
+    const startY = e.clientY
+    const origX  = item.position.x
+    const origY  = item.position.y
+    let moved = false
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      if (!moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        moved = true
+        dragging.current = true
+      }
+      if (moved) setDragDelta({ x: dx, y: dy })
+    }
+
+    const onUp = (ev) => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+
+      if (moved) {
+        const dx = ev.clientX - startX
+        const dy = ev.clientY - startY
+        const newPos = { x: origX + dx, y: origY + dy }
+        updatePosition(item.id, newPos)
+        checkProximity(item.id, newPos)
+      }
+      setDragDelta({ x: 0, y: 0 })
+      dragging.current = false
+      setTimeout(() => onDragEnd(), 50)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }, [item.position.x, item.position.y, item.id, onSelect, onDragStart, onDragEnd, updatePosition, checkProximity])
+
+  const isDraggingNow = dragging.current
+
   return (
-    <div style={{ position: 'absolute', left: item.position.x, top: item.position.y, zIndex: isSelected ? 5 : 1 }}>
-      <motion.div
-        drag
-        dragMomentum={false}
-        dragElastic={0}
-        style={{ x: bx, y: by, touchAction: 'none', userSelect: 'none' }}
-        onPointerDownCapture={(e) => {
-          e.stopPropagation()
-          hasDragged.current = false
-          onDragStart()
-          onSelect()
-        }}
-        onDrag={() => { hasDragged.current = true }}
-        onDragEnd={(_, info) => {
-          const newPos = {
-            x: item.position.x + info.offset.x,
-            y: item.position.y + info.offset.y,
-          }
-          updatePosition(item.id, newPos)
-          checkProximity(item.id, newPos)
-          bx.set(0)
-          by.set(0)
-          onDragEnd()
+    <div
+      style={{
+        position: 'absolute',
+        left: item.position.x + dragDelta.x,
+        top:  item.position.y + dragDelta.y,
+        zIndex: isDraggingNow ? 20 : isSelected ? 5 : 1,
+        touchAction: 'none',
+        userSelect: 'none',
+      }}
+      onPointerDown={handlePointerDown}
+    >
+      <div
+        className="bubble"
+        style={{
+          background: bStyle.bg,
+          color: bStyle.color,
+          fontSize,
+          padding: `${padV}px ${padH}px`,
+          opacity: bStyle.opacity,
+          backdropFilter: isUrgent ? 'none' : 'blur(22px)',
+          WebkitBackdropFilter: isUrgent ? 'none' : 'blur(22px)',
+          border: isUrgent ? 'none' : '1px solid rgba(255,255,255,0.38)',
+          boxShadow: isDraggingNow
+            ? `0 20px 60px rgba(0,0,0,0.28), ${isUrgent ? '0 0 28px rgba(192,254,55,0.55)' : '0 0 0 1px rgba(255,255,255,0.3)'}`
+            : isUrgent
+            ? '0 0 28px rgba(192,254,55,0.55)'
+            : item.chunkId
+            ? '0 0 0 2px rgba(255,255,255,0.4), 0 4px 20px rgba(0,0,0,0.15)'
+            : '0 2px 12px rgba(0,0,0,0.12)',
+          outline: isSelected ? '2px solid rgba(255,255,255,0.85)' : '2px solid transparent',
+          outlineOffset: 4,
+          cursor: isDraggingNow ? 'grabbing' : 'grab',
+          position: 'relative',
+          transform: isDraggingNow ? 'scale(1.07)' : 'scale(1)',
+          transition: isDraggingNow ? 'transform 0.1s' : 'outline 0.15s, transform 0.15s, box-shadow 0.15s',
         }}
       >
-        <div
-          className="bubble"
-          style={{
-            background: bStyle.bg,
-            color: bStyle.color,
-            fontSize,
-            padding: `${padV}px ${padH}px`,
-            opacity: bStyle.opacity,
-            backdropFilter: isUrgent ? 'none' : 'blur(22px)',
-            WebkitBackdropFilter: isUrgent ? 'none' : 'blur(22px)',
-            border: isUrgent ? 'none' : '1px solid rgba(255,255,255,0.38)',
-            boxShadow: isUrgent
-              ? '0 0 28px rgba(192,254,55,0.55)'
-              : item.chunkId
-              ? '0 0 0 2px rgba(255,255,255,0.4), 0 4px 20px rgba(0,0,0,0.15)'
-              : '0 2px 12px rgba(0,0,0,0.12)',
-            // Selection ring via outline so it never affects layout or shape
-            outline: isSelected ? '2px solid rgba(255,255,255,0.85)' : '2px solid transparent',
-            outlineOffset: 4,
-            cursor: 'grab',
-            position: 'relative',
-            transition: 'outline 0.15s, outline-offset 0.15s',
-          }}
-        >
-          {item.mainKeyword}
-        </div>
-      </motion.div>
+        {item.mainKeyword}
+      </div>
     </div>
   )
 }
