@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion'
+import { motion, useMotionValue, useTransform, AnimatePresence, animate } from 'framer-motion'
 import { useAppStore } from '../store/useAppStore'
 import {
   getUrgencyInfo,
@@ -32,6 +32,95 @@ function useLongPress(cb, ms = 500) {
     if (timer.current) { clearTimeout(timer.current); timer.current = null }
   }, [])
   return { onPointerDown: start, onPointerUp: cancel, onPointerLeave: cancel, onPointerCancel: cancel }
+}
+
+// ─── InfiniteMarquee ──────────────────────────────────────────────────────────
+const MARQUEE_COPIES = 8
+
+function InfiniteMarquee({ bubbleItems }) {
+  const trackRef = useRef(null)
+  const xMotion = useMotionValue(0)
+  const animRef = useRef(null)
+
+  // Stable key: restart animation only when item list actually changes
+  const itemsKey = bubbleItems.map((i) => i.id).join('|')
+
+  useEffect(() => {
+    const track = trackRef.current
+    if (!track) return
+
+    // Stop any previous animation
+    if (animRef.current) { animRef.current.stop(); animRef.current = null }
+
+    const start = () => {
+      const singleWidth = track.scrollWidth / MARQUEE_COPIES
+      if (singleWidth <= 0) return
+      xMotion.set(0)
+      animRef.current = animate(xMotion, -singleWidth, {
+        duration: singleWidth / 80,   // 80 px/s → slow, constant speed
+        ease: 'linear',
+        repeat: Infinity,
+        repeatType: 'loop',
+      })
+    }
+
+    // Brief delay so DOM finishes layout before we measure
+    const t = setTimeout(start, 60)
+    return () => {
+      clearTimeout(t)
+      if (animRef.current) { animRef.current.stop(); animRef.current = null }
+    }
+  }, [itemsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const renderCopy = (copyIdx) =>
+    bubbleItems.map((item) => {
+      const { level } = getUrgencyInfo(item.deadline)
+      const bStyle = getBubbleStyle(level)
+      // clamp()-based sizes so bubbles scale with viewport width
+      const fs  = `clamp(${10 + Math.round(bStyle.scale * 3)}px, ${(0.55 + bStyle.scale * 0.38).toFixed(2)}vw, ${15 + Math.round(bStyle.scale * 7)}px)`
+      const pv  = `clamp(${6  + Math.round(bStyle.scale * 3)}px, ${(0.35 + bStyle.scale * 0.18).toFixed(2)}vw, ${11 + Math.round(bStyle.scale * 5)}px)`
+      const ph  = `clamp(${13 + Math.round(bStyle.scale * 5)}px, ${(0.75 + bStyle.scale * 0.45).toFixed(2)}vw, ${22 + Math.round(bStyle.scale * 9)}px)`
+      return (
+        <div
+          key={`c${copyIdx}-${item.id}`}
+          className="bubble"
+          style={{
+            background: bStyle.bg,
+            color: bStyle.color,
+            backdropFilter: 'blur(22px)',
+            WebkitBackdropFilter: 'blur(22px)',
+            border: (level === 'medium' || level === 'low' || level === 'none')
+              ? '1px solid rgba(255,255,255,0.25)'
+              : 'none',
+            fontSize: fs,
+            padding: `${pv} ${ph}`,
+            opacity: bStyle.opacity,
+            flexShrink: 0,
+            boxShadow: bStyle.glow ? '0 0 20px rgba(192,254,55,0.4)' : 'none',
+          }}
+        >
+          {item.mainKeyword}
+        </div>
+      )
+    })
+
+  return (
+    <motion.div
+      ref={trackRef}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        width: 'max-content',
+        gap: 'clamp(8px, 0.75vw, 18px)',
+        x: xMotion,
+        willChange: 'transform',
+        pointerEvents: 'none',
+        userSelect: 'none',
+      }}
+    >
+      {Array.from({ length: MARQUEE_COPIES }, (_, i) => renderCopy(i))}
+    </motion.div>
+  )
 }
 
 // ─── SwipeCard ────────────────────────────────────────────────────────────────
@@ -289,37 +378,6 @@ export default function ReminderPage({ onAdd }) {
 
   const momentumColor = { high: '#C0FE37', medium: '#88AEDB', low: 'rgba(255,255,255,0.5)', none: 'rgba(255,255,255,0.4)' }
 
-  // 마퀴 버블 렌더 헬퍼 (key prefix로 복제본 구분)
-  const renderBubbles = (prefix) =>
-    sorted.map((item) => {
-      const { level } = getUrgencyInfo(item.deadline)
-      const bStyle = getBubbleStyle(level)
-      return (
-        <div
-          key={`${prefix}-${item.id}`}
-          className="bubble"
-          style={{
-            background: bStyle.bg,
-            color: bStyle.color,
-            backdropFilter: 'blur(22px)',
-            WebkitBackdropFilter: 'blur(22px)',
-            border: level === 'medium' || level === 'low' || level === 'none'
-              ? '1px solid rgba(255,255,255,0.25)'
-              : 'none',
-            fontSize: Math.round(14 + bStyle.scale * 5),
-            padding: `${Math.round(10 + bStyle.scale * 4)}px ${Math.round(20 + bStyle.scale * 8)}px`,
-            opacity: bStyle.opacity,
-            flexShrink: 0,
-            boxShadow: bStyle.glow ? '0 0 20px rgba(192,254,55,0.4)' : 'none',
-            cursor: 'default',
-            userSelect: 'none',
-          }}
-        >
-          {item.mainKeyword}
-        </div>
-      )
-    })
-
   return (
     <div className="" style={styles.page}>
       <div style={styles.inner}>
@@ -333,10 +391,7 @@ export default function ReminderPage({ onAdd }) {
 
       {/* ── Full-width infinite marquee ── */}
       <div style={styles.marqueeWrapper}>
-        <div className="marquee-track" style={{ gap: 14, pointerEvents: 'none' }}>
-          {renderBubbles('a')}
-          {renderBubbles('b')}
-        </div>
+        <InfiniteMarquee bubbleItems={sorted} />
       </div>
 
       <div style={styles.inner}>
@@ -437,6 +492,7 @@ const styles = {
   inner: {
     width: '100%',
     maxWidth: 960,
+    margin: '0 auto',
     display: 'flex',
     flexDirection: 'column',
     padding: '40px 48px 32px',

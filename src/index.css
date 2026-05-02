@@ -34,20 +34,6 @@ body {
 ::-webkit-scrollbar { width: 0; height: 0; }
 * { scrollbar-width: none; }
 
-/* ─── Infinite marquee ────────────────────────────────────────────────────── */
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
-}
-
-.marquee-track {
-  display: flex;
-  align-items: center;
-  width: max-content;
-  animation: marquee 48s linear infinite;
-  will-change: transform;
-}
-
 /* ─── Unified aurora background (all 3 pages + navbar) ───────────────────── */
 .app-bg {
   background:
