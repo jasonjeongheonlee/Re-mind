@@ -3,9 +3,32 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '../store/useAppStore'
 import { getUrgencyInfo, getBubbleStyle } from '../utils/urgency'
 
+const MIN_SCALE = 0.25
+const MAX_SCALE = 4.0
+
+// ─── ZoomControls ─────────────────────────────────────────────────────────────
+function ZoomControls({ scale, onZoom }) {
+  const pct = Math.round(scale * 100)
+  return (
+    <div style={zcStyles.panel} onPointerDown={(e) => e.stopPropagation()}>
+      <button style={zcStyles.btn} onClick={() => onZoom(scale * 1.25)}>+</button>
+      <input
+        type="range"
+        min={Math.round(MIN_SCALE * 100)}
+        max={Math.round(MAX_SCALE * 100)}
+        step={5}
+        value={pct}
+        onChange={(e) => onZoom(Number(e.target.value) / 100)}
+        style={zcStyles.slider}
+      />
+      <span style={zcStyles.label}>{pct}%</span>
+      <button style={zcStyles.btn} onClick={() => onZoom(scale / 1.25)}>−</button>
+    </div>
+  )
+}
+
 // ─── BubbleNode ───────────────────────────────────────────────────────────────
-// Pure pointer-event drag — bypasses framer-motion drag to avoid stopPropagation conflicts
-function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, onSelect }) {
+function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, onSelect, scale }) {
   const { updatePosition, updateChunk } = useAppStore()
   const allItems = useAppStore((s) => s.items)
   const [dragDelta, setDragDelta] = useState({ x: 0, y: 0 })
@@ -38,7 +61,7 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
   }, [allItems, updateChunk])
 
   const handlePointerDown = useCallback((e) => {
-    e.stopPropagation()   // prevent canvas pan
+    e.stopPropagation()
     onSelect()
     onDragStart()
 
@@ -49,8 +72,8 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
     let moved = false
 
     const onMove = (ev) => {
-      const dx = ev.clientX - startX
-      const dy = ev.clientY - startY
+      const dx = (ev.clientX - startX) / scale
+      const dy = (ev.clientY - startY) / scale
       if (!moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
         moved = true
         dragging.current = true
@@ -63,8 +86,8 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
       window.removeEventListener('pointerup', onUp)
 
       if (moved) {
-        const dx = ev.clientX - startX
-        const dy = ev.clientY - startY
+        const dx = (ev.clientX - startX) / scale
+        const dy = (ev.clientY - startY) / scale
         const newPos = { x: origX + dx, y: origY + dy }
         updatePosition(item.id, newPos)
         checkProximity(item.id, newPos)
@@ -76,7 +99,7 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
 
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
-  }, [item.position.x, item.position.y, item.id, onSelect, onDragStart, onDragEnd, updatePosition, checkProximity])
+  }, [item.position.x, item.position.y, item.id, scale, onSelect, onDragStart, onDragEnd, updatePosition, checkProximity])
 
   const isDraggingNow = dragging.current
 
@@ -127,10 +150,10 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
 // ─── Deadline toast ───────────────────────────────────────────────────────────
 function DeadlineToast({ onSelect, onSkip }) {
   const QUICK = [
-    { label: '오늘', days: 0 },
-    { label: '내일', days: 1 },
-    { label: '3일 뒤', days: 3 },
-    { label: '일주일 뒤', days: 7 },
+    { label: 'Today',     days: 0 },
+    { label: 'Tomorrow',  days: 1 },
+    { label: 'In 3 days', days: 3 },
+    { label: 'Next week', days: 7 },
   ]
   return (
     <motion.div
@@ -141,7 +164,7 @@ function DeadlineToast({ onSelect, onSkip }) {
       transition={{ type: 'spring', damping: 20, stiffness: 300 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <p style={ipStyles.toastQuestion}>언제 리마인드 해드릴까요?</p>
+      <p style={ipStyles.toastQuestion}>When should we remind you?</p>
       <div style={ipStyles.toastOptions}>
         {QUICK.map((opt) => (
           <motion.button
@@ -160,7 +183,7 @@ function DeadlineToast({ onSelect, onSkip }) {
           whileTap={{ scale: 0.96 }}
           onClick={onSkip}
         >
-          건너뛰기
+          Skip
         </motion.button>
       </div>
     </motion.div>
@@ -216,11 +239,17 @@ export default function MindmapPage() {
   const panRef = useRef(panOffset)
   panRef.current = panOffset
 
+  // ── Canvas zoom ──
+  const [scale, setScale] = useState(1)
+  const scaleRef = useRef(scale)
+  scaleRef.current = scale
+  const containerRef = useRef(null)
+
   // ── Bubble selection ──
   const [selectedId, setSelectedId] = useState(null)
 
   // ── Always-visible input state ──
-  const [step, setStep] = useState('idle')    // 'idle' | 'main' | 'sub'
+  const [step, setStep] = useState('idle')
   const [mainKeyword, setMainKeyword] = useState('')
   const [subInput, setSubInput] = useState('')
   const [subKeywords, setSubKeywords] = useState([])
@@ -228,15 +257,52 @@ export default function MindmapPage() {
   const [showToast, setShowToast] = useState(false)
   const inputRef = useRef(null)
 
-  // Focus input whenever step transitions away from idle
   useEffect(() => {
     if (step !== 'idle') inputRef.current?.focus()
   }, [step])
 
+  // ── Wheel zoom (passive:false required for preventDefault) ──
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const handleWheel = (e) => {
+      e.preventDefault()
+      const sensitivity = e.ctrlKey ? 1 : 0.45
+      const zoomFactor = Math.exp(-e.deltaY * sensitivity / 300)
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scaleRef.current * zoomFactor))
+
+      const rect = el.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+
+      setPanOffset((prev) => ({
+        x: mouseX - (mouseX - prev.x) * (newScale / scaleRef.current),
+        y: mouseY - (mouseY - prev.y) * (newScale / scaleRef.current),
+      }))
+      setScale(newScale)
+    }
+
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [])
+
+  // ── Zoom toward viewport center (for buttons / slider) ──
+  const zoomToCenter = useCallback((next) => {
+    const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
+    const cx = (containerRef.current?.clientWidth  ?? window.innerWidth)  / 2
+    const cy = (containerRef.current?.clientHeight ?? window.innerHeight) / 2
+    setPanOffset((prev) => ({
+      x: cx - (cx - prev.x) * (clamped / scaleRef.current),
+      y: cy - (cy - prev.y) * (clamped / scaleRef.current),
+    }))
+    setScale(clamped)
+  }, [])
+
   // ── Canvas pointer handlers ──
   const handlePointerDown = useCallback((e) => {
     if (isDraggingBubble.current) return
-    setSelectedId(null)   // deselect on canvas tap
+    setSelectedId(null)
     isPanning.current = true
     lastPointer.current = { x: e.clientX, y: e.clientY }
   }, [])
@@ -314,7 +380,6 @@ export default function MindmapPage() {
     }
   }
 
-  // Which value the input is bound to
   const inputValue = step === 'sub' ? subInput : step === 'main' ? mainKeyword : ''
   const setInputValue = (v) => {
     if (step === 'sub') setSubInput(v)
@@ -322,11 +387,12 @@ export default function MindmapPage() {
   }
   const placeholder =
     step === 'idle' ? 'Add a keyword...' :
-    step === 'main' ? '메인 키워드 입력...' :
-                      '세부 키워드... (Enter ×2 완료)'
+    step === 'main' ? 'Type your main keyword...' :
+                      'Add sub-keywords... (Enter twice to finish)'
 
   return (
     <div
+      ref={containerRef}
       style={mStyles.container}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -334,12 +400,13 @@ export default function MindmapPage() {
       onPointerLeave={handlePointerUp}
     >
       {/* ── Canvas world ── */}
-      <div style={{ ...mStyles.world, transform: `translate(${panOffset.x}px, ${panOffset.y}px)` }}>
+      <div style={{ ...mStyles.world, transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})` }}>
         <ChunkBackground items={activeItems} />
         {activeItems.map((item) => (
           <BubbleNode
             key={item.id}
             item={item}
+            scale={scale}
             isDraggingAny={isDraggingBubble}
             isSelected={selectedId === item.id}
             onSelect={() => setSelectedId(item.id)}
@@ -348,6 +415,9 @@ export default function MindmapPage() {
           />
         ))}
       </div>
+
+      {/* ── Zoom controls ── */}
+      <ZoomControls scale={scale} onZoom={zoomToCenter} />
 
       {/* ── Empty hint ── */}
       {activeItems.length === 0 && (
@@ -364,7 +434,7 @@ export default function MindmapPage() {
         style={mStyles.bottomArea}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        {/* Bubble preview row (floats above pill) */}
+        {/* Bubble preview row */}
         <AnimatePresence>
           {step === 'sub' && (
             <motion.div
@@ -414,7 +484,7 @@ export default function MindmapPage() {
                 style={{ ...ipStyles.typeBtn, ...(type === t ? ipStyles.typeBtnActive : {}) }}
                 onClick={(e) => { e.stopPropagation(); setType(t) }}
               >
-                {t === 'task' ? '📋 Task' : '💡 Idea'}
+                {t === 'task' ? 'Task' : 'Idea'}
               </button>
             ))}
           </div>
@@ -472,13 +542,12 @@ const mStyles = {
     left: '50%',
     position: 'absolute',
     transform: 'translateX(-50%)',
-    width: 520,           // Fixed — not responsive
+    width: 520,
     zIndex: 20,
     display: 'flex',
     flexDirection: 'column',
     gap: 10,
   },
-  /* Always-visible pill — shape never changes */
   inputPill: {
     alignItems: 'center',
     background: 'rgba(255,255,255,0.65)',
@@ -488,7 +557,7 @@ const mStyles = {
     borderRadius: 9999,
     display: 'flex',
     gap: 8,
-    padding: '10px 10px 10px 12px',
+    padding: '4px 4px 4px 8px',
     boxShadow: '0 8px 32px rgba(30,84,186,0.12)',
     cursor: 'text',
     flexShrink: 0,
@@ -524,7 +593,6 @@ const mStyles = {
 }
 
 const ipStyles = {
-  /* Deadline toast */
   toast: {
     background: 'rgba(10,20,60,0.82)',
     backdropFilter: 'blur(28px)',
@@ -562,7 +630,6 @@ const ipStyles = {
     color: 'rgba(255,255,255,0.4)',
   },
 
-  /* Bubble preview row */
   bubbleRow: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -605,7 +672,6 @@ const ipStyles = {
     padding: '0 2px',
   },
 
-  /* Type toggle */
   typePill: {
     background: 'rgba(0,0,0,0.10)',
     borderRadius: 9999,
@@ -630,5 +696,61 @@ const ipStyles = {
   typeBtnActive: {
     background: '#C0FE37',
     color: '#000',
+  },
+}
+
+// ─── Zoom controls styles ─────────────────────────────────────────────────────
+const zcStyles = {
+  panel: {
+    position: 'absolute',
+    left: 16,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    zIndex: 20,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 6,
+    padding: '10px 8px',
+    background: 'rgba(255,255,255,0.65)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255,255,255,0.8)',
+    borderRadius: 20,
+    boxShadow: '0 8px 32px rgba(30,84,186,0.12)',
+    userSelect: 'none',
+  },
+  btn: {
+    width: 28,
+    height: 28,
+    borderRadius: 9999,
+    border: 'none',
+    background: '#1E54BA',
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 700,
+    fontFamily: "'Rethink Sans', sans-serif",
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    lineHeight: 1,
+  },
+  slider: {
+    writingMode: 'vertical-lr',
+    direction: 'rtl',
+    width: 4,
+    height: 80,
+    cursor: 'pointer',
+    accentColor: '#1E54BA',
+  },
+  label: {
+    color: 'rgba(20,30,90,0.70)',
+    fontSize: 10,
+    fontWeight: 700,
+    fontFamily: "'Rethink Sans', sans-serif",
+    letterSpacing: '-0.01em',
+    textAlign: 'center',
   },
 }
