@@ -98,68 +98,70 @@ export default function RewinderPage() {
   const groups = groupByDate(archived)
 
   return (
-    <div className="rewinder-bg" style={styles.page}>
-      {/* Header */}
-      <div style={styles.header}>
-        <h1 style={styles.h1}>Rewinder</h1>
-        <p style={styles.subtitle}>
-          {archived.length === 0
-            ? 'Nothing archived yet.'
-            : `${archived.length} item${archived.length !== 1 ? 's' : ''} rewound`}
-        </p>
-      </div>
-
-      {/* Stats */}
-      {archived.length > 0 && (
-        <div style={styles.statsRow}>
-          <div style={styles.statCard}>
-            <div style={styles.statNum}>{items.filter((i) => i.completed).length}</div>
-            <div style={styles.statLabel}>Completed</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={{ ...styles.statNum, color: 'rgba(255,200,80,0.9)' }}>
-              {items.filter((i) => i.deferred && !i.completed).length}
-            </div>
-            <div style={styles.statLabel}>Deferred</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={{ ...styles.statNum, color: '#88AEDB' }}>
-              {items.filter((i) => !i.completed && !i.deferred).length}
-            </div>
-            <div style={styles.statLabel}>Active</div>
-          </div>
+    <div className="app-bg" style={styles.page}>
+      <div style={styles.inner}>
+        {/* Header */}
+        <div style={styles.header}>
+          <h1 style={styles.h1}>Rewinder</h1>
+          <p style={styles.subtitle}>
+            {archived.length === 0
+              ? 'Nothing archived yet.'
+              : `${archived.length} item${archived.length !== 1 ? 's' : ''} rewound`}
+          </p>
         </div>
-      )}
 
-      {/* Groups */}
-      <div style={styles.groups}>
-        <AnimatePresence>
-          {archived.length === 0 ? (
-            <motion.div
-              style={styles.empty}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 16, textAlign: 'center', lineHeight: 1.6 }}>
-                Complete or defer items in the Reminder tab<br />
-                and they'll rewind here.
-              </p>
-            </motion.div>
-          ) : (
-            groups.map(([dayLabel, groupItems]) => (
-              <motion.div key={dayLabel} style={styles.group} layout>
-                <div style={styles.groupLabel}>{dayLabel}</div>
-                <div style={styles.groupItems}>
-                  <AnimatePresence>
-                    {groupItems.map((item) => (
-                      <RewinderCard key={item.id} item={item} />
-                    ))}
-                  </AnimatePresence>
-                </div>
+        {/* Stats */}
+        {archived.length > 0 && (
+          <div style={styles.statsRow}>
+            <div style={styles.statCard}>
+              <div style={styles.statNum}>{items.filter((i) => i.completed).length}</div>
+              <div style={styles.statLabel}>Completed</div>
+            </div>
+            <div style={styles.statCard}>
+              <div style={{ ...styles.statNum, color: 'rgba(255,200,80,0.9)' }}>
+                {items.filter((i) => i.deferred && !i.completed).length}
+              </div>
+              <div style={styles.statLabel}>Deferred</div>
+            </div>
+            <div style={styles.statCard}>
+              <div style={{ ...styles.statNum, color: '#88AEDB' }}>
+                {items.filter((i) => !i.completed && !i.deferred).length}
+              </div>
+              <div style={styles.statLabel}>Active</div>
+            </div>
+          </div>
+        )}
+
+        {/* Groups */}
+        <div style={styles.groups}>
+          <AnimatePresence>
+            {archived.length === 0 ? (
+              <motion.div
+                style={styles.empty}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 16, textAlign: 'center', lineHeight: 1.6 }}>
+                  Complete or defer items in the Reminder tab<br />
+                  and they'll rewind here.
+                </p>
               </motion.div>
-            ))
-          )}
-        </AnimatePresence>
+            ) : (
+              groups.map(([dayLabel, groupItems]) => (
+                <motion.div key={dayLabel} style={styles.group} layout>
+                  <div style={styles.groupLabel}>{dayLabel}</div>
+                  <div style={styles.groupItems}>
+                    <AnimatePresence>
+                      {groupItems.map((item) => (
+                        <RewinderCard key={item.id} item={item} />
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                </motion.div>
+              ))
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   )
@@ -169,15 +171,22 @@ const styles = {
   page: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 24,
+    alignItems: 'center',
     height: '100%',
     overflowY: 'auto',
-    padding: '40px 48px 48px',
     position: 'relative',
     width: '100%',
   },
+  inner: {
+    width: '100%',
+    maxWidth: 960,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 28,
+    padding: '40px 48px 48px',
+  },
   header: { display: 'flex', flexDirection: 'column', gap: 6 },
-  h1: { color: '#fff', fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 800, letterSpacing: '-0.03em' },
+  h1: { color: '#fff', fontSize: 'clamp(48px, 6vw, 80px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1 },
   subtitle: { color: 'rgba(255,255,255,0.45)', fontSize: 14 },
   statsRow: { display: 'flex', gap: 12 },
   statCard: {
@@ -255,7 +264,7 @@ const styles = {
     borderRadius: 9999,
     color: '#C0FE37',
     cursor: 'pointer',
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 12,
     fontWeight: 700,
     padding: '7px 16px',
@@ -268,7 +277,7 @@ const styles = {
     borderRadius: 9999,
     color: 'rgba(255,255,255,0.3)',
     cursor: 'pointer',
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 12,
     fontWeight: 500,
     padding: '7px 16px',

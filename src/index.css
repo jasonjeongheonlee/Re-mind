@@ -11,9 +11,9 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Rethink Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: #0f1b4c;
+  background: #ccddf0;
 }
 
 .app {
@@ -34,7 +34,32 @@ body {
 ::-webkit-scrollbar { width: 0; height: 0; }
 * { scrollbar-width: none; }
 
-/* Pill / Capsule bubble shape */
+/* ─── Unified aurora background (all 3 pages) ─────────────────────────────── */
+.app-bg {
+  background:
+    radial-gradient(ellipse at 4% 12%, rgba(20, 80, 210, 0.92) 0%, transparent 38%),
+    radial-gradient(ellipse at 84% 80%, rgba(0, 205, 115, 0.78) 0%, transparent 40%),
+    radial-gradient(ellipse at 92% 8%,  rgba(80, 200, 220, 0.25) 0%, transparent 30%),
+    radial-gradient(ellipse at 50% 100%, rgba(180, 255, 55, 0.22) 0%, transparent 35%),
+    #d0e2f0;
+  position: relative;
+}
+
+.app-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 20px,
+    rgba(100, 140, 210, 0.055) 20px,
+    rgba(100, 140, 210, 0.055) 21px
+  );
+  pointer-events: none;
+}
+
+/* ─── Pill / Capsule bubble shape ─────────────────────────────────────────── */
 .bubble {
   border-radius: 9999px;
   display: inline-flex;
@@ -43,7 +68,7 @@ body {
   white-space: nowrap;
   cursor: default;
   user-select: none;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.01em;
   transition: all 0.3s ease;
 }
@@ -63,7 +88,7 @@ body {
 
 /* Glass card */
 .glass-card {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -78,7 +103,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 9999px;
   color: #fff;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Rethink Sans', sans-serif;
   font-size: 15px;
   outline: none;
   padding: 12px 20px;
@@ -92,62 +117,4 @@ body {
 
 .glass-input:focus {
   border-color: rgba(255, 255, 255, 0.5);
-}
-
-/* Reminder page gradient background */
-.reminder-bg {
-  background:
-    radial-gradient(ellipse at 80% 0%, rgba(136, 174, 219, 0.6) 0%, transparent 55%),
-    radial-gradient(ellipse at 10% 90%, rgba(26, 38, 117, 0.9) 0%, transparent 55%),
-    linear-gradient(160deg, #1A2675 0%, #1E54BA 45%, #2B6ED4 75%, #88AEDB 100%);
-  position: relative;
-  overflow: hidden;
-}
-
-.reminder-bg::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 28px,
-    rgba(255, 255, 255, 0.04) 28px,
-    rgba(255, 255, 255, 0.04) 29px
-  );
-  pointer-events: none;
-}
-
-/* Mindmap aurora background */
-.mindmap-bg {
-  background:
-    radial-gradient(ellipse at 12% 55%, rgba(30, 84, 186, 0.55) 0%, transparent 45%),
-    radial-gradient(ellipse at 85% 15%, rgba(100, 200, 140, 0.4) 0%, transparent 40%),
-    radial-gradient(ellipse at 60% 5%, rgba(255, 170, 110, 0.3) 0%, transparent 38%),
-    radial-gradient(ellipse at 50% 95%, rgba(192, 254, 55, 0.2) 0%, transparent 40%),
-    radial-gradient(ellipse at 88% 80%, rgba(80, 160, 220, 0.35) 0%, transparent 40%),
-    #dce8f2;
-}
-
-/* Rewinder background */
-.rewinder-bg {
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(136, 174, 219, 0.4) 0%, transparent 60%),
-    linear-gradient(180deg, #1A2675 0%, #1E54BA 50%, #2B6ED4 100%);
-  position: relative;
-  overflow: hidden;
-}
-
-.rewinder-bg::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 28px,
-    rgba(255, 255, 255, 0.03) 28px,
-    rgba(255, 255, 255, 0.03) 29px
-  );
-  pointer-events: none;
 }

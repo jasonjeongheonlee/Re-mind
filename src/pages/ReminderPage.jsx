@@ -290,104 +290,106 @@ export default function ReminderPage({ onAdd }) {
   const momentumColor = { high: '#C0FE37', medium: '#88AEDB', low: 'rgba(255,255,255,0.5)', none: 'rgba(255,255,255,0.4)' }
 
   return (
-    <div className="reminder-bg" style={styles.page}>
-      {/* Hero */}
-      <div style={styles.hero}>
-        <h1 style={styles.h1}>Remind your tasks</h1>
-        <h2 style={styles.h2}>Rewind your thoughts</h2>
-        <p style={styles.subtitle}>Here's what needs your attention now.</p>
-      </div>
+    <div className="app-bg" style={styles.page}>
+      <div style={styles.inner}>
+        {/* Hero */}
+        <div style={styles.hero}>
+          <h1 style={styles.h1}>Remind your tasks</h1>
+          <h2 style={styles.h2}>Rewind your thoughts</h2>
+          <p style={styles.subtitle}>Here's what needs your attention now.</p>
+        </div>
 
-      {/* Bubble scroll strip */}
-      <div style={styles.bubbleStrip}>
-        {sorted.map((item) => {
-          const { level } = getUrgencyInfo(item.deadline)
-          const bStyle = getBubbleStyle(level)
-          return (
-            <motion.div
-              key={item.id}
-              className="bubble"
-              style={{
-                background: bStyle.bg,
-                color: bStyle.color,
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-                border: level === 'medium' || level === 'low' || level === 'none'
-                  ? '1px solid rgba(255,255,255,0.25)'
-                  : 'none',
-                fontSize: Math.round(12 + bStyle.scale * 4),
-                padding: `${Math.round(8 + bStyle.scale * 3)}px ${Math.round(16 + bStyle.scale * 6)}px`,
-                opacity: bStyle.opacity,
-                flexShrink: 0,
-                boxShadow: bStyle.glow ? '0 0 20px rgba(192, 254, 55, 0.4)' : 'none',
-                cursor: 'pointer',
-              }}
-              whileHover={{ scale: 1.06 }}
-              onClick={() => setShowSwipe(true)}
-            >
-              {item.mainKeyword}
-            </motion.div>
-          )
-        })}
-      </div>
-
-      {/* Overview section */}
-      <div style={styles.overviewSection}>
-        <p style={styles.overviewLabel}>Take a Look Today</p>
-        <p style={styles.overviewText}>
-          You have{' '}
-          <span style={styles.overviewHighlight}>{urgentCount} items</span>
-          {' '}needing your attention today. Your current momentum is{' '}
-          <span style={{ ...styles.overviewHighlight, color: momentumColor[momentum] }}>
-            {momentum}
-          </span>
-        </p>
-      </div>
-
-      {/* Preview cards + CTA */}
-      <div style={styles.previewRow}>
-        {sorted.slice(0, 3).map((item, i) => {
-          const { level, label } = getUrgencyInfo(item.deadline)
-          const isUrgent = level === 'critical' || level === 'overdue' || level === 'high'
-          return (
-            <motion.div
-              key={item.id}
-              className="glass-card"
-              style={{
-                ...styles.previewCard,
-                cursor: 'pointer',
-                borderColor: isUrgent ? 'rgba(192,254,55,0.3)' : 'rgba(255,255,255,0.12)',
-              }}
-              whileHover={{ scale: 1.03, borderColor: 'rgba(255,255,255,0.35)' }}
-              onClick={() => setShowSwipe(true)}
-            >
-              <div style={{
-                ...styles.previewCardKeyword,
-                color: isUrgent ? '#C0FE37' : '#fff',
-              }}>
+        {/* Bubble scroll strip */}
+        <div style={styles.bubbleStrip}>
+          {sorted.map((item) => {
+            const { level } = getUrgencyInfo(item.deadline)
+            const bStyle = getBubbleStyle(level)
+            return (
+              <motion.div
+                key={item.id}
+                className="bubble"
+                style={{
+                  background: bStyle.bg,
+                  color: bStyle.color,
+                  backdropFilter: 'blur(10px)',
+                  WebkitBackdropFilter: 'blur(10px)',
+                  border: level === 'medium' || level === 'low' || level === 'none'
+                    ? '1px solid rgba(255,255,255,0.25)'
+                    : 'none',
+                  fontSize: Math.round(14 + bStyle.scale * 5),
+                  padding: `${Math.round(10 + bStyle.scale * 4)}px ${Math.round(20 + bStyle.scale * 8)}px`,
+                  opacity: bStyle.opacity,
+                  flexShrink: 0,
+                  boxShadow: bStyle.glow ? '0 0 20px rgba(192, 254, 55, 0.4)' : 'none',
+                  cursor: 'pointer',
+                }}
+                whileHover={{ scale: 1.06 }}
+                onClick={() => setShowSwipe(true)}
+              >
                 {item.mainKeyword}
-              </div>
-              <div style={styles.previewCardLabel}>{label}</div>
-              {item.subKeywords[0] && (
-                <div style={styles.previewCardSub}>{item.subKeywords[0].text}</div>
-              )}
-            </motion.div>
-          )
-        })}
-      </div>
+              </motion.div>
+            )
+          })}
+        </div>
 
-      {/* Start swiping CTA */}
-      <div style={styles.ctaRow}>
-        <motion.button
-          style={styles.ctaBtn}
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={() => setShowSwipe(true)}
-        >
-          Start Swiping
-          <span style={{ marginLeft: 8, fontSize: 16 }}>→</span>
-        </motion.button>
-        <p style={styles.ctaHint}>or press any card above</p>
+        {/* Overview section */}
+        <div style={styles.overviewSection}>
+          <p style={styles.overviewLabel}>Take a Look Today</p>
+          <p style={styles.overviewText}>
+            You have{' '}
+            <span style={styles.overviewHighlight}>{urgentCount} items</span>
+            {' '}needing your attention today. Your current momentum is{' '}
+            <span style={{ ...styles.overviewHighlight, color: momentumColor[momentum] }}>
+              {momentum}
+            </span>
+          </p>
+        </div>
+
+        {/* Preview cards + CTA */}
+        <div style={styles.previewRow}>
+          {sorted.slice(0, 3).map((item, i) => {
+            const { level, label } = getUrgencyInfo(item.deadline)
+            const isUrgent = level === 'critical' || level === 'overdue' || level === 'high'
+            return (
+              <motion.div
+                key={item.id}
+                className="glass-card"
+                style={{
+                  ...styles.previewCard,
+                  cursor: 'pointer',
+                  borderColor: isUrgent ? 'rgba(192,254,55,0.3)' : 'rgba(255,255,255,0.12)',
+                }}
+                whileHover={{ scale: 1.03, borderColor: 'rgba(255,255,255,0.35)' }}
+                onClick={() => setShowSwipe(true)}
+              >
+                <div style={{
+                  ...styles.previewCardKeyword,
+                  color: isUrgent ? '#C0FE37' : '#fff',
+                }}>
+                  {item.mainKeyword}
+                </div>
+                <div style={styles.previewCardLabel}>{label}</div>
+                {item.subKeywords[0] && (
+                  <div style={styles.previewCardSub}>{item.subKeywords[0].text}</div>
+                )}
+              </motion.div>
+            )
+          })}
+        </div>
+
+        {/* Start swiping CTA */}
+        <div style={styles.ctaRow}>
+          <motion.button
+            style={styles.ctaBtn}
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => setShowSwipe(true)}
+          >
+            Start Swiping
+            <span style={{ marginLeft: 8, fontSize: 16 }}>→</span>
+          </motion.button>
+          <p style={styles.ctaHint}>or press any card above</p>
+        </div>
       </div>
 
       {/* FAB */}
@@ -420,40 +422,47 @@ const styles = {
     width: '100%',
     display: 'flex',
     flexDirection: 'column',
-    padding: '40px 48px 32px',
-    gap: 28,
+    alignItems: 'center',
     overflowY: 'auto',
     position: 'relative',
   },
+  inner: {
+    width: '100%',
+    maxWidth: 960,
+    display: 'flex',
+    flexDirection: 'column',
+    padding: '40px 48px 32px',
+    gap: 32,
+  },
   hero: { display: 'flex', flexDirection: 'column', gap: 6 },
-  h1: { color: '#fff', fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.15 },
-  h2: { color: 'rgba(255,255,255,0.65)', fontSize: 'clamp(24px, 3.5vw, 38px)', fontWeight: 300, letterSpacing: '-0.025em' },
-  subtitle: { color: 'rgba(255,255,255,0.45)', fontSize: 14, fontWeight: 400, marginTop: 4 },
+  h1: { color: '#fff', fontSize: 'clamp(48px, 6vw, 80px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1 },
+  h2: { color: 'rgba(255,255,255,0.65)', fontSize: 'clamp(32px, 4.5vw, 58px)', fontWeight: 300, letterSpacing: '-0.025em' },
+  subtitle: { color: 'rgba(255,255,255,0.45)', fontSize: 15, fontWeight: 400, marginTop: 6 },
   bubbleStrip: {
     display: 'flex',
-    gap: 10,
+    gap: 12,
     overflowX: 'auto',
     paddingBottom: 4,
     alignItems: 'center',
   },
   overviewSection: { display: 'flex', flexDirection: 'column', gap: 8 },
   overviewLabel: { color: 'rgba(255,255,255,0.55)', fontSize: 12, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' },
-  overviewText: { color: '#fff', fontSize: 'clamp(18px, 2.5vw, 26px)', fontWeight: 400, letterSpacing: '-0.01em', lineHeight: 1.4, maxWidth: 640 },
+  overviewText: { color: '#fff', fontSize: 'clamp(20px, 2.5vw, 28px)', fontWeight: 400, letterSpacing: '-0.01em', lineHeight: 1.4 },
   overviewHighlight: { color: '#C0FE37', fontWeight: 700 },
-  previewRow: { display: 'flex', gap: 14, flexWrap: 'wrap' },
+  previewRow: { display: 'flex', gap: 16, flexWrap: 'wrap' },
   previewCard: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 8,
-    minWidth: 160,
-    maxWidth: 200,
-    flex: '1 1 160px',
-    padding: '18px 16px',
+    gap: 10,
+    minWidth: 180,
+    maxWidth: 240,
+    flex: '1 1 180px',
+    padding: '22px 20px',
     transition: 'border-color 0.2s',
   },
-  previewCardKeyword: { fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em' },
-  previewCardLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 500 },
-  previewCardSub: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: 400 },
+  previewCardKeyword: { fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' },
+  previewCardLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 500 },
+  previewCardSub: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 400 },
   ctaRow: { display: 'flex', alignItems: 'center', gap: 16 },
   ctaBtn: {
     alignItems: 'center',
@@ -465,13 +474,13 @@ const styles = {
     color: '#fff',
     cursor: 'pointer',
     display: 'inline-flex',
-    fontFamily: 'Inter, sans-serif',
-    fontSize: 14,
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 15,
     fontWeight: 600,
-    padding: '12px 28px',
+    padding: '13px 32px',
     letterSpacing: '-0.01em',
   },
-  ctaHint: { color: 'rgba(255,255,255,0.3)', fontSize: 12 },
+  ctaHint: { color: 'rgba(255,255,255,0.3)', fontSize: 13 },
   fab: {
     alignItems: 'center',
     background: '#C0FE37',
@@ -481,14 +490,14 @@ const styles = {
     color: '#000',
     cursor: 'pointer',
     display: 'flex',
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 28,
     fontWeight: 300,
-    height: 52,
+    height: 56,
     justifyContent: 'center',
     position: 'fixed',
     right: 32,
-    width: 52,
+    width: 56,
     boxShadow: '0 4px 20px rgba(192,254,55,0.45)',
     zIndex: 50,
   },
@@ -514,7 +523,7 @@ const sStyles = {
     borderRadius: 9999,
     color: '#fff',
     cursor: 'pointer',
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 13,
     fontWeight: 500,
     padding: '8px 20px',
@@ -571,7 +580,7 @@ const sStyles = {
     alignItems: 'center',
     borderRadius: 9999,
     display: 'flex',
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 18,
     fontWeight: 800,
     justifyContent: 'center',

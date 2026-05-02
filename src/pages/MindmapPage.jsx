@@ -374,7 +374,7 @@ export default function MindmapPage() {
 
   return (
     <div
-      className="mindmap-bg"
+      className="app-bg"
       style={mStyles.container}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -521,7 +521,7 @@ const mStyles = {
     color: '#fff',
     cursor: 'pointer',
     display: 'flex',
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 18,
     fontWeight: 600,
     height: 36,
@@ -537,7 +537,7 @@ const mStyles = {
     color: '#000',
     cursor: 'pointer',
     display: 'none', // hidden on mindmap (using input panel instead)
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 28,
     fontWeight: 300,
     height: 52,
@@ -581,7 +581,7 @@ const ipStyles = {
     color: 'rgba(30,84,186,0.5)',
     cursor: 'pointer',
     fontSize: 9,
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     lineHeight: 1,
     padding: 0,
   },
@@ -592,7 +592,7 @@ const ipStyles = {
     borderRadius: 9999,
     color: '#1A2675',
     flex: 1,
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 15,
     fontWeight: 500,
     outline: 'none',
@@ -607,7 +607,7 @@ const ipStyles = {
     color: '#fff',
     cursor: 'pointer',
     display: 'flex',
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 20,
     fontWeight: 600,
     height: 42,
@@ -629,7 +629,7 @@ const ipStyles = {
     borderRadius: 9999,
     color: 'rgba(30,84,186,0.5)',
     cursor: 'pointer',
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 12,
     fontWeight: 600,
     padding: '4px 14px',
@@ -646,7 +646,7 @@ const ipStyles = {
     color: 'rgba(30,84,186,0.65)',
     cursor: 'pointer',
     flex: 1,
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 12,
     fontWeight: 500,
     padding: '6px 14px',
@@ -659,7 +659,7 @@ const ipStyles = {
     borderRadius: 9999,
     color: 'rgba(30,84,186,0.5)',
     cursor: 'pointer',
-    fontFamily: 'Inter, sans-serif',
+    fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 11,
     height: 30,
     width: 30,
