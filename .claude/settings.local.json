@@ -11,7 +11,9 @@
       "Bash(npx create-vite@latest . --template react)",
       "Bash(npm run *)",
       "Bash(curl -s http://localhost:5173)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

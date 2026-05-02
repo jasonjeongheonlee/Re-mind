@@ -290,7 +290,7 @@ export default function ReminderPage({ onAdd }) {
   const momentumColor = { high: '#C0FE37', medium: '#88AEDB', low: 'rgba(255,255,255,0.5)', none: 'rgba(255,255,255,0.4)' }
 
   return (
-    <div className="app-bg" style={styles.page}>
+    <div className="" style={styles.page}>
       <div style={styles.inner}>
         {/* Hero */}
         <div style={styles.hero}>
@@ -311,8 +311,8 @@ export default function ReminderPage({ onAdd }) {
                 style={{
                   background: bStyle.bg,
                   color: bStyle.color,
-                  backdropFilter: 'blur(10px)',
-                  WebkitBackdropFilter: 'blur(10px)',
+                  backdropFilter: 'blur(22px)',
+                  WebkitBackdropFilter: 'blur(22px)',
                   border: level === 'medium' || level === 'low' || level === 'none'
                     ? '1px solid rgba(255,255,255,0.25)'
                     : 'none',

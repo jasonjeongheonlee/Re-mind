@@ -10,7 +10,7 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false)
 
   return (
-    <div className="app">
+    <div className="app app-bg">
       <Navbar activeTab={activeTab} onTabChange={setActiveTab} />
 
       <div className="page-container">

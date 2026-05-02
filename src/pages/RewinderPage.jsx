@@ -98,7 +98,7 @@ export default function RewinderPage() {
   const groups = groupByDate(archived)
 
   return (
-    <div className="app-bg" style={styles.page}>
+    <div className="" style={styles.page}>
       <div style={styles.inner}>
         {/* Header */}
         <div style={styles.header}>

@@ -24,9 +24,9 @@ export function getBubbleStyle(level) {
     overdue:  { bg: '#C0FE37', color: '#000', scale: 1.6,  opacity: 1.0,  glow: true  },
     critical: { bg: '#C0FE37', color: '#000', scale: 1.4,  opacity: 1.0,  glow: true  },
     high:     { bg: '#C0FE37', color: '#000', scale: 1.15, opacity: 0.9,  glow: false },
-    medium:   { bg: 'rgba(255,255,255,0.22)', color: 'rgba(255,255,255,0.95)', scale: 1.0,  opacity: 0.7,  glow: false },
-    low:      { bg: 'rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.75)', scale: 0.85, opacity: 0.55, glow: false },
-    none:     { bg: 'rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.65)', scale: 0.8,  opacity: 0.45, glow: false },
+    medium:   { bg: 'rgba(255,255,255,0.28)', color: 'rgba(255,255,255,1.0)',  scale: 1.0,  opacity: 0.92, glow: false },
+    low:      { bg: 'rgba(255,255,255,0.20)', color: 'rgba(255,255,255,0.90)', scale: 0.85, opacity: 0.78, glow: false },
+    none:     { bg: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.82)', scale: 0.8,  opacity: 0.65, glow: false },
   }
   return styles[level] ?? styles.none
 }
