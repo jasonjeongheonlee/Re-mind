@@ -289,6 +289,37 @@ export default function ReminderPage({ onAdd }) {
 
   const momentumColor = { high: '#C0FE37', medium: '#88AEDB', low: 'rgba(255,255,255,0.5)', none: 'rgba(255,255,255,0.4)' }
 
+  // 마퀴 버블 렌더 헬퍼 (key prefix로 복제본 구분)
+  const renderBubbles = (prefix) =>
+    sorted.map((item) => {
+      const { level } = getUrgencyInfo(item.deadline)
+      const bStyle = getBubbleStyle(level)
+      return (
+        <div
+          key={`${prefix}-${item.id}`}
+          className="bubble"
+          style={{
+            background: bStyle.bg,
+            color: bStyle.color,
+            backdropFilter: 'blur(22px)',
+            WebkitBackdropFilter: 'blur(22px)',
+            border: level === 'medium' || level === 'low' || level === 'none'
+              ? '1px solid rgba(255,255,255,0.25)'
+              : 'none',
+            fontSize: Math.round(14 + bStyle.scale * 5),
+            padding: `${Math.round(10 + bStyle.scale * 4)}px ${Math.round(20 + bStyle.scale * 8)}px`,
+            opacity: bStyle.opacity,
+            flexShrink: 0,
+            boxShadow: bStyle.glow ? '0 0 20px rgba(192,254,55,0.4)' : 'none',
+            cursor: 'default',
+            userSelect: 'none',
+          }}
+        >
+          {item.mainKeyword}
+        </div>
+      )
+    })
+
   return (
     <div className="" style={styles.page}>
       <div style={styles.inner}>
@@ -298,40 +329,17 @@ export default function ReminderPage({ onAdd }) {
           <h2 style={styles.h2}>Rewind your thoughts</h2>
           <p style={styles.subtitle}>Here's what needs your attention now.</p>
         </div>
+      </div>
 
-        {/* Bubble scroll strip */}
-        <div style={styles.bubbleStrip}>
-          {sorted.map((item) => {
-            const { level } = getUrgencyInfo(item.deadline)
-            const bStyle = getBubbleStyle(level)
-            return (
-              <motion.div
-                key={item.id}
-                className="bubble"
-                style={{
-                  background: bStyle.bg,
-                  color: bStyle.color,
-                  backdropFilter: 'blur(22px)',
-                  WebkitBackdropFilter: 'blur(22px)',
-                  border: level === 'medium' || level === 'low' || level === 'none'
-                    ? '1px solid rgba(255,255,255,0.25)'
-                    : 'none',
-                  fontSize: Math.round(14 + bStyle.scale * 5),
-                  padding: `${Math.round(10 + bStyle.scale * 4)}px ${Math.round(20 + bStyle.scale * 8)}px`,
-                  opacity: bStyle.opacity,
-                  flexShrink: 0,
-                  boxShadow: bStyle.glow ? '0 0 20px rgba(192, 254, 55, 0.4)' : 'none',
-                  cursor: 'pointer',
-                }}
-                whileHover={{ scale: 1.06 }}
-                onClick={() => setShowSwipe(true)}
-              >
-                {item.mainKeyword}
-              </motion.div>
-            )
-          })}
+      {/* ── Full-width infinite marquee ── */}
+      <div style={styles.marqueeWrapper}>
+        <div className="marquee-track" style={{ gap: 14, pointerEvents: 'none' }}>
+          {renderBubbles('a')}
+          {renderBubbles('b')}
         </div>
+      </div>
 
+      <div style={styles.inner}>
         {/* Overview section */}
         <div style={styles.overviewSection}>
           <p style={styles.overviewLabel}>Take a Look Today</p>
@@ -438,12 +446,13 @@ const styles = {
   h1: { color: '#fff', fontSize: 'clamp(48px, 6vw, 80px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1 },
   h2: { color: 'rgba(255,255,255,0.65)', fontSize: 'clamp(32px, 4.5vw, 58px)', fontWeight: 300, letterSpacing: '-0.025em' },
   subtitle: { color: 'rgba(255,255,255,0.45)', fontSize: 15, fontWeight: 400, marginTop: 6 },
-  bubbleStrip: {
-    display: 'flex',
-    gap: 12,
-    overflowX: 'auto',
-    paddingBottom: 4,
-    alignItems: 'center',
+  marqueeWrapper: {
+    width: '100%',
+    overflow: 'hidden',
+    padding: '4px 0',
+    /* 양쪽 끝 페이드 */
+    WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%)',
+    maskImage: 'linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%)',
   },
   overviewSection: { display: 'flex', flexDirection: 'column', gap: 8 },
   overviewLabel: { color: 'rgba(255,255,255,0.55)', fontSize: 12, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' },
