@@ -148,13 +148,27 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
 }
 
 // ─── Deadline toast ───────────────────────────────────────────────────────────
+const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
 function DeadlineToast({ onSelect, onSkip }) {
-  const QUICK = [
-    { label: 'Today',     days: 0 },
-    { label: 'Tomorrow',  days: 1 },
-    { label: 'In 3 days', days: 3 },
-    { label: 'Next week', days: 7 },
-  ]
+  const [picked, setPicked] = useState(null)
+
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() + i)
+    return {
+      offset: i,
+      weekday: DAY_ABBR[d.getDay()],
+      date: d.getDate(),
+      badge: i === 0 ? 'Today' : i === 1 ? 'Tmrw' : `+${i}d`,
+    }
+  })
+
+  const handlePick = (offset) => {
+    setPicked(offset)
+    setTimeout(() => onSelect(offset), 180)
+  }
+
   return (
     <motion.div
       style={ipStyles.toast}
@@ -164,28 +178,39 @@ function DeadlineToast({ onSelect, onSkip }) {
       transition={{ type: 'spring', damping: 20, stiffness: 300 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <p style={ipStyles.toastQuestion}>When should we remind you?</p>
-      <div style={ipStyles.toastOptions}>
-        {QUICK.map((opt) => (
-          <motion.button
-            key={opt.label}
-            style={ipStyles.toastBtn}
-            whileHover={{ scale: 1.06, background: 'rgba(192,254,55,0.18)' }}
-            whileTap={{ scale: 0.96 }}
-            onClick={() => onSelect(opt.days)}
-          >
-            {opt.label}
-          </motion.button>
-        ))}
-        <motion.button
-          style={{ ...ipStyles.toastBtn, ...ipStyles.toastSkipBtn }}
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.96 }}
-          onClick={onSkip}
-        >
-          Skip
-        </motion.button>
+      <div style={ipStyles.toastHeader}>
+        <p style={ipStyles.toastQuestion}>Remind me on…</p>
+        <p style={ipStyles.toastSub}>We'll ping you at 9:00 am</p>
       </div>
+
+      <div style={ipStyles.dayGrid}>
+        {days.map((day) => {
+          const active = picked === day.offset
+          return (
+            <motion.button
+              key={day.offset}
+              style={{ ...ipStyles.dayBtn, ...(active ? ipStyles.dayBtnActive : {}) }}
+              whileHover={!active ? { scale: 1.08, background: 'rgba(255,255,255,0.18)' } : {}}
+              whileTap={{ scale: 0.93 }}
+              onClick={() => handlePick(day.offset)}
+            >
+              <span style={{ ...ipStyles.dayWeekday, ...(active ? { color: 'rgba(255,255,255,0.7)' } : {}) }}>
+                {day.weekday}
+              </span>
+              <span style={{ ...ipStyles.dayDate, ...(active ? { color: '#fff' } : {}) }}>
+                {day.date}
+              </span>
+              <span style={{ ...ipStyles.dayBadge, ...(active ? ipStyles.dayBadgeActive : {}) }}>
+                {day.badge}
+              </span>
+            </motion.button>
+          )
+        })}
+      </div>
+
+      <button style={ipStyles.toastSkipBtn} onClick={onSkip}>
+        No deadline
+      </button>
     </motion.div>
   )
 }
@@ -598,12 +623,17 @@ const ipStyles = {
     backdropFilter: 'blur(28px)',
     WebkitBackdropFilter: 'blur(28px)',
     border: '1px solid rgba(255,255,255,0.22)',
-    borderRadius: 20,
+    borderRadius: 24,
     boxShadow: '0 8px 36px rgba(0,0,0,0.30)',
     display: 'flex',
     flexDirection: 'column',
-    gap: 12,
+    gap: 16,
     padding: '18px 20px',
+  },
+  toastHeader: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
   },
   toastQuestion: {
     color: '#fff',
@@ -611,23 +641,81 @@ const ipStyles = {
     fontWeight: 700,
     letterSpacing: '-0.01em',
   },
-  toastOptions: { display: 'flex', flexWrap: 'wrap', gap: 8 },
-  toastBtn: {
-    background: 'rgba(255,255,255,0.12)',
-    border: '1px solid rgba(255,255,255,0.22)',
-    borderRadius: 9999,
-    color: '#fff',
+  toastSub: {
+    color: 'rgba(255,255,255,0.38)',
+    fontSize: 12,
+    fontWeight: 500,
+    letterSpacing: '-0.01em',
+  },
+  // 7-day grid
+  dayGrid: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 4,
+  },
+  dayBtn: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 3,
+    width: 56,
+    padding: '10px 0 8px',
+    borderRadius: 16,
+    border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(255,255,255,0.08)',
     cursor: 'pointer',
+    transition: 'background 0.15s, border-color 0.15s',
+    flexShrink: 0,
+  },
+  dayBtnActive: {
+    background: '#1E54BA',
+    border: '1px solid rgba(100,140,255,0.5)',
+    boxShadow: '0 4px 16px rgba(30,84,186,0.45)',
+  },
+  dayWeekday: {
+    color: 'rgba(255,255,255,0.45)',
     fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 13,
+    fontSize: 10,
     fontWeight: 600,
-    padding: '7px 16px',
-    transition: 'background 0.18s',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+  },
+  dayDate: {
+    color: 'rgba(255,255,255,0.88)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 18,
+    fontWeight: 800,
+    letterSpacing: '-0.02em',
+    lineHeight: 1,
+  },
+  dayBadge: {
+    background: 'rgba(255,255,255,0.10)',
+    borderRadius: 9999,
+    color: 'rgba(255,255,255,0.45)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.02em',
+    padding: '2px 6px',
+  },
+  dayBadgeActive: {
+    background: 'rgba(255,255,255,0.20)',
+    color: '#fff',
   },
   toastSkipBtn: {
+    alignSelf: 'center',
     background: 'transparent',
-    border: '1px solid rgba(255,255,255,0.1)',
-    color: 'rgba(255,255,255,0.4)',
+    border: 'none',
+    color: 'rgba(255,255,255,0.32)',
+    cursor: 'pointer',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 12,
+    fontWeight: 600,
+    letterSpacing: '0.02em',
+    padding: '4px 8px',
+    textDecoration: 'underline',
+    textUnderlineOffset: 3,
+    textDecorationColor: 'rgba(255,255,255,0.15)',
   },
 
   bubbleRow: {
