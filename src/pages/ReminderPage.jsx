@@ -380,8 +380,8 @@ export default function ReminderPage({ onAdd }) {
 
   return (
     <div className="" style={styles.page}>
-      <div style={styles.inner}>
-        {/* Hero */}
+      {/* Hero — vh-based vertical padding so marquee stays visible on short windows */}
+      <div style={{ ...styles.inner, padding: 'clamp(12px, 3.5vh, 40px) 48px clamp(8px, 2vh, 24px)' }}>
         <div style={styles.hero}>
           <h1 style={styles.h1}>Remind your tasks</h1>
           <h2 style={styles.h2}>Rewind your thoughts</h2>
@@ -401,7 +401,8 @@ export default function ReminderPage({ onAdd }) {
           <p style={styles.overviewText}>
             You have{' '}
             <span style={styles.overviewHighlight}>{urgentCount} items</span>
-            {' '}needing your attention today. Your current momentum is{' '}
+            {' '}needing your attention today.<br />
+            Your current momentum is{' '}
             <span style={{ ...styles.overviewHighlight, color: momentumColor[momentum] }}>
               {momentum}
             </span>
@@ -505,8 +506,8 @@ const styles = {
   marqueeWrapper: {
     width: '100%',
     overflow: 'hidden',
-    padding: '4px 0',
-    /* 양쪽 끝 페이드 */
+    padding: '6px 0',
+    flexShrink: 0,          /* 창이 낮아져도 마퀴 영역이 압축되지 않음 */
     WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%)',
     maskImage: 'linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%)',
   },
