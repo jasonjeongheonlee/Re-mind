@@ -2,11 +2,10 @@ import { useState } from 'react'
 import Navbar from './components/Navbar'
 import ReminderPage from './pages/ReminderPage'
 import MindmapPage from './pages/MindmapPage'
-import RewinderPage from './pages/RewinderPage'
 import AddModal from './components/AddModal'
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('reminder')
+  const [activeTab, setActiveTab] = useState('rewinder')
   const [showAddModal, setShowAddModal] = useState(false)
 
   return (
@@ -17,8 +16,7 @@ export default function App() {
         {activeTab === 'reminder' && (
           <ReminderPage onAdd={() => setShowAddModal(true)} />
         )}
-        {activeTab === 'mindmap' && <MindmapPage />}
-        {activeTab === 'rewinder' && <RewinderPage />}
+        {activeTab === 'rewinder' && <MindmapPage />}
       </div>
 
       {showAddModal && <AddModal onClose={() => setShowAddModal(false)} />}
