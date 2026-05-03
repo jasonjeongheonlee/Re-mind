@@ -12,9 +12,19 @@ import {
 } from '../utils/urgency'
 import AddModal from '../components/AddModal'
 
+// ─── Clock hook ───────────────────────────────────────────────────────────────
+function useTime() {
+  const [time, setTime] = useState(new Date())
+  useEffect(() => {
+    const id = setInterval(() => setTime(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return time
+}
+
 // ─── Countdown hook ───────────────────────────────────────────────────────────
 function useCountdown(deadline) {
-  const [tick, setTick] = useState(0)
+  const [, setTick] = useState(0)
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000)
     return () => clearInterval(id)
@@ -34,22 +44,148 @@ function useLongPress(cb, ms = 500) {
   return { onPointerDown: start, onPointerUp: cancel, onPointerLeave: cancel, onPointerCancel: cancel }
 }
 
+// ─── ClockCard ────────────────────────────────────────────────────────────────
+function ClockCard() {
+  const time = useTime()
+  const h = String(time.getHours()).padStart(2, '0')
+  const m = String(time.getMinutes()).padStart(2, '0')
+  const s = String(time.getSeconds()).padStart(2, '0')
+  const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  const dateLabel = `${DAYS[time.getDay()]}, ${time.getDate()} ${MONTHS[time.getMonth()]}`
+
+  return (
+    <div className="glass-card" style={dStyles.clockCard}>
+      <div style={dStyles.clockFace}>
+        <span style={dStyles.clockHM}>{h}:{m}</span>
+        <span style={dStyles.clockSec}>{s}</span>
+      </div>
+      <div style={dStyles.clockDate}>{dateLabel}</div>
+    </div>
+  )
+}
+
+// ─── CalendarCard ─────────────────────────────────────────────────────────────
+function CalendarCard({ items }) {
+  const now   = new Date()
+  const year  = now.getFullYear()
+  const month = now.getMonth()
+  const today = now.getDate()
+
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const firstDow    = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+  // Map day → urgency level for dot coloring
+  const deadlineDays = {}
+  items.forEach((item) => {
+    if (!item.deadline || item.completed) return
+    const d = new Date(item.deadline)
+    if (d.getFullYear() === year && d.getMonth() === month) {
+      const day = d.getDate()
+      const { level } = getUrgencyInfo(item.deadline)
+      const isUrgent = ['overdue','critical','high'].includes(level)
+      if (!deadlineDays[day] || isUrgent) deadlineDays[day] = isUrgent ? 'urgent' : 'normal'
+    }
+  })
+
+  const cells = []
+  for (let i = 0; i < firstDow; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+  while (cells.length % 7 !== 0) cells.push(null)
+
+  return (
+    <div className="glass-card" style={dStyles.calCard}>
+      <div style={dStyles.calTop}>
+        <span style={dStyles.calMonth}>{MONTH_NAMES[month]}</span>
+        <span style={dStyles.calYear}>{year}</span>
+      </div>
+      <div style={dStyles.calDayRow}>
+        {['S','M','T','W','T','F','S'].map((l, i) => (
+          <div key={i} style={dStyles.calDayLbl}>{l}</div>
+        ))}
+      </div>
+      <div style={dStyles.calGrid}>
+        {cells.map((day, i) => {
+          if (!day) return <div key={`e${i}`} />
+          const isToday = day === today
+          const dl      = deadlineDays[day]
+          return (
+            <div
+              key={day}
+              style={{
+                ...dStyles.calCell,
+                background: isToday ? '#C0FE37' : 'transparent',
+                color: isToday ? '#000' : dl ? '#fff' : 'rgba(255,255,255,0.38)',
+                fontWeight: isToday || dl ? 700 : 400,
+                position: 'relative',
+              }}
+            >
+              {day}
+              {dl && !isToday && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: 1,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: 3,
+                  height: 3,
+                  borderRadius: '50%',
+                  background: dl === 'urgent' ? '#FF7070' : '#C0FE37',
+                }} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── WelcomeCard ──────────────────────────────────────────────────────────────
+function WelcomeCard({ items }) {
+  const active  = items.filter((i) => !i.completed && !i.deferred)
+  const overdue = active.filter((i) => {
+    const { level } = getUrgencyInfo(i.deadline)
+    return level === 'overdue' || level === 'critical'
+  })
+  const h = new Date().getHours()
+  const greeting = h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : 'Good evening.'
+
+  return (
+    <div className="glass-card" style={dStyles.welcomeCard}>
+      <p style={dStyles.welcomeGreet}>{greeting}</p>
+      <p style={dStyles.welcomeMsg}>
+        {active.length === 0
+          ? "You're all clear — nothing pending."
+          : overdue.length > 0
+          ? `${overdue.length} item${overdue.length > 1 ? 's' : ''} need${overdue.length === 1 ? 's' : ''} your attention now.`
+          : `${active.length} reminder${active.length > 1 ? 's' : ''} on track.`}
+      </p>
+      {overdue.length > 0 && (
+        <div style={dStyles.urgentBanner}>
+          <span style={dStyles.urgentDot} />
+          <span style={dStyles.urgentText}>Overdue items</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── InfiniteMarquee ──────────────────────────────────────────────────────────
 const MARQUEE_COPIES = 8
 
 function InfiniteMarquee({ bubbleItems }) {
   const trackRef = useRef(null)
-  const xMotion = useMotionValue(0)
-  const animRef = useRef(null)
+  const xMotion  = useMotionValue(0)
+  const animRef  = useRef(null)
 
-  // Stable key: restart animation only when item list actually changes
   const itemsKey = bubbleItems.map((i) => i.id).join('|')
 
   useEffect(() => {
     const track = trackRef.current
     if (!track) return
 
-    // Stop any previous animation
     if (animRef.current) { animRef.current.stop(); animRef.current = null }
 
     const start = () => {
@@ -57,14 +193,13 @@ function InfiniteMarquee({ bubbleItems }) {
       if (singleWidth <= 0) return
       xMotion.set(0)
       animRef.current = animate(xMotion, -singleWidth, {
-        duration: singleWidth / 80,   // 80 px/s → slow, constant speed
+        duration: singleWidth / 80,
         ease: 'linear',
         repeat: Infinity,
         repeatType: 'loop',
       })
     }
 
-    // Brief delay so DOM finishes layout before we measure
     const t = setTimeout(start, 60)
     return () => {
       clearTimeout(t)
@@ -76,10 +211,9 @@ function InfiniteMarquee({ bubbleItems }) {
     bubbleItems.map((item) => {
       const { level } = getUrgencyInfo(item.deadline)
       const bStyle = getBubbleStyle(level)
-      // clamp()-based sizes so bubbles scale with viewport width
-      const fs  = `clamp(${10 + Math.round(bStyle.scale * 3)}px, ${(0.55 + bStyle.scale * 0.38).toFixed(2)}vw, ${15 + Math.round(bStyle.scale * 7)}px)`
-      const pv  = `clamp(${6  + Math.round(bStyle.scale * 3)}px, ${(0.35 + bStyle.scale * 0.18).toFixed(2)}vw, ${11 + Math.round(bStyle.scale * 5)}px)`
-      const ph  = `clamp(${13 + Math.round(bStyle.scale * 5)}px, ${(0.75 + bStyle.scale * 0.45).toFixed(2)}vw, ${22 + Math.round(bStyle.scale * 9)}px)`
+      const fs = `clamp(${10 + Math.round(bStyle.scale * 3)}px, ${(0.55 + bStyle.scale * 0.38).toFixed(2)}vw, ${15 + Math.round(bStyle.scale * 7)}px)`
+      const pv = `clamp(${6  + Math.round(bStyle.scale * 3)}px, ${(0.35 + bStyle.scale * 0.18).toFixed(2)}vw, ${11 + Math.round(bStyle.scale * 5)}px)`
+      const ph = `clamp(${13 + Math.round(bStyle.scale * 5)}px, ${(0.75 + bStyle.scale * 0.45).toFixed(2)}vw, ${22 + Math.round(bStyle.scale * 9)}px)`
       return (
         <div
           key={`c${copyIdx}-${item.id}`}
@@ -127,9 +261,9 @@ function InfiniteMarquee({ bubbleItems }) {
 function SwipeCard({ item, onDone, onDefer, isCenter, offset }) {
   const countdown = useCountdown(item.deadline)
   const { level } = getUrgencyInfo(item.deadline)
-  const x = useMotionValue(0)
-  const rotate = useTransform(x, [-220, 220], [-18, 18])
-  const doneOpacity = useTransform(x, [0, 80], [0, 1])
+  const x         = useMotionValue(0)
+  const rotate    = useTransform(x, [-220, 220], [-18, 18])
+  const doneOpacity  = useTransform(x, [0, 80], [0, 1])
   const laterOpacity = useTransform(x, [-80, 0], [1, 0])
   const [showSubs, setShowSubs] = useState(false)
 
@@ -140,7 +274,7 @@ function SwipeCard({ item, onDone, onDefer, isCenter, offset }) {
     else if (info.offset.x < -100) onDefer()
   }
 
-  const isUrgent = level === 'critical' || level === 'overdue' || level === 'high'
+  const isUrgent   = level === 'critical' || level === 'overdue' || level === 'high'
   const deadlineLabel = getDeadlineLabel(item.deadline)
 
   if (!isCenter) {
@@ -170,15 +304,9 @@ function SwipeCard({ item, onDone, onDefer, isCenter, offset }) {
       whileTap={{ cursor: 'grabbing' }}
       {...longPress}
     >
-      {/* Done / Later overlays */}
-      <motion.div style={{ ...sStyles.swipeHint, ...sStyles.swipeHintDone, opacity: doneOpacity }}>
-        Done
-      </motion.div>
-      <motion.div style={{ ...sStyles.swipeHint, ...sStyles.swipeHintLater, opacity: laterOpacity }}>
-        Later
-      </motion.div>
+      <motion.div style={{ ...sStyles.swipeHint, ...sStyles.swipeHintDone,  opacity: doneOpacity }}>Done</motion.div>
+      <motion.div style={{ ...sStyles.swipeHint, ...sStyles.swipeHintLater, opacity: laterOpacity }}>Later</motion.div>
 
-      {/* Keyword header */}
       <div style={{
         ...sStyles.cardKeywordPill,
         background: isUrgent ? '#C0FE37' : 'rgba(255,255,255,0.2)',
@@ -191,9 +319,7 @@ function SwipeCard({ item, onDone, onDefer, isCenter, offset }) {
         {item.mainKeyword}
       </div>
 
-      {/* Body grid */}
       <div style={sStyles.cardBody}>
-        {/* Sub-keywords */}
         <div style={sStyles.subGrid}>
           <AnimatePresence>
             {(showSubs ? item.subKeywords : item.subKeywords.slice(0, 1)).map((sk, i) => (
@@ -225,7 +351,6 @@ function SwipeCard({ item, onDone, onDefer, isCenter, offset }) {
           )}
         </div>
 
-        {/* Date panel */}
         {item.deadline && (
           <div style={sStyles.datePanelWrap}>
             <div style={sStyles.datePanel}>
@@ -236,7 +361,6 @@ function SwipeCard({ item, onDone, onDefer, isCenter, offset }) {
         )}
       </div>
 
-      {/* Location chip (last sub-keyword or type) */}
       <div style={sStyles.locationChip}>
         {item.subKeywords[item.subKeywords.length - 1]?.text || (item.type === 'idea' ? 'Idea' : 'Task')}
       </div>
@@ -248,19 +372,17 @@ function SwipeCard({ item, onDone, onDefer, isCenter, offset }) {
 function SwipeMode({ items, onExit }) {
   const { completeItem, deferItem } = useAppStore()
   const [doneCount, setDoneCount] = useState(0)
-  // Use a queue of item IDs so we control order independently of store state
   const allActive = items.filter((i) => !i.completed && !i.deferred)
-  const [queue, setQueue] = useState(() => allActive.map((i) => i.id))
+  const [queue, setQueue]               = useState(() => allActive.map((i) => i.id))
   const [processedIds, setProcessedIds] = useState([])
 
-  // Pending = in queue and not yet processed
-  const pendingIds = queue.filter((id) => !processedIds.includes(id))
-  const currentId = pendingIds[0] ?? null
-  const currentItem = currentId ? allActive.find((i) => i.id === currentId) ?? null : null
-  const nextId = pendingIds[1] ?? null
-  const nextItem = nextId ? allActive.find((i) => i.id === nextId) ?? null : null
+  const pendingIds    = queue.filter((id) => !processedIds.includes(id))
+  const currentId     = pendingIds[0] ?? null
+  const currentItem   = currentId ? allActive.find((i) => i.id === currentId) ?? null : null
+  const nextId        = pendingIds[1] ?? null
+  const nextItem      = nextId ? allActive.find((i) => i.id === nextId) ?? null : null
   const prevProcessedId = processedIds[processedIds.length - 1] ?? null
-  const prevItem = prevProcessedId ? items.find((i) => i.id === prevProcessedId) ?? null : null
+  const prevItem      = prevProcessedId ? items.find((i) => i.id === prevProcessedId) ?? null : null
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onExit() }
@@ -297,22 +419,15 @@ function SwipeMode({ items, onExit }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
-      {/* Exit */}
       <button style={sStyles.exitBtn} onClick={onExit}>✕</button>
 
-      {/* Header */}
       <div style={sStyles.swipeHeader}>
         <div style={sStyles.swipeH1}>Swipe right to done</div>
         <div style={sStyles.swipeH2}>Swipe left to later</div>
       </div>
 
-      {/* Cards area */}
       <div style={sStyles.cardsArea}>
-        {/* Left ghost (previous processed) */}
-        {prevItem && (
-          <SwipeCard item={prevItem} isCenter={false} offset={-1} />
-        )}
-        {/* Center */}
+        {prevItem && <SwipeCard item={prevItem} isCenter={false} offset={-1} />}
         <AnimatePresence mode="wait">
           <motion.div
             key={currentItem.id}
@@ -329,19 +444,14 @@ function SwipeMode({ items, onExit }) {
             />
           </motion.div>
         </AnimatePresence>
-        {/* Right next */}
-        {nextItem && (
-          <SwipeCard item={nextItem} isCenter={false} offset={1} />
-        )}
+        {nextItem && <SwipeCard item={nextItem} isCenter={false} offset={1} />}
       </div>
 
-      {/* Done counter */}
       <div style={sStyles.doneCounter}>
         <span style={sStyles.doneNumber}>{doneCount}</span>
         <span style={sStyles.doneLabel}>done</span>
       </div>
 
-      {/* Progress */}
       <div style={sStyles.progressRow}>
         {queue.map((id) => (
           <div
@@ -365,12 +475,12 @@ function SwipeMode({ items, onExit }) {
 // ─── ReminderPage ─────────────────────────────────────────────────────────────
 export default function ReminderPage({ onAdd }) {
   const items = useAppStore((s) => s.items)
-  const [showSwipe, setShowSwipe] = useState(false)
+  const [showSwipe,    setShowSwipe]    = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
 
-  const active = getActiveItems(items)
-  const sorted = sortByUrgency(active)
-  const momentum = getMomentum(items)
+  const active      = getActiveItems(items)
+  const sorted      = sortByUrgency(active)
+  const momentum    = getMomentum(items)
   const urgentCount = active.filter((i) => {
     const { level } = getUrgencyInfo(i.deadline)
     return level === 'critical' || level === 'overdue' || level === 'high'
@@ -379,17 +489,18 @@ export default function ReminderPage({ onAdd }) {
   const momentumColor = { high: '#C0FE37', medium: '#88AEDB', low: 'rgba(255,255,255,0.5)', none: 'rgba(255,255,255,0.4)' }
 
   return (
-    <div className="" style={styles.page}>
-      {/* Hero — vh-based vertical padding so marquee stays visible on short windows */}
-      <div style={{ ...styles.inner, padding: 'clamp(12px, 3.5vh, 40px) 48px clamp(8px, 2vh, 24px)' }}>
-        <div style={styles.hero}>
-          <h1 style={styles.h1}>Remind your tasks</h1>
-          <h2 style={styles.h2}>Rewind your thoughts</h2>
-          <p style={styles.subtitle}>Here's what needs your attention now.</p>
+    <div style={styles.page}>
+
+      {/* Dashboard cards row */}
+      <div style={styles.inner}>
+        <div style={dStyles.dashRow}>
+          <ClockCard />
+          <CalendarCard items={items} />
+          <WelcomeCard items={items} />
         </div>
       </div>
 
-      {/* ── Full-width infinite marquee ── */}
+      {/* Full-width infinite marquee */}
       <div style={styles.marqueeWrapper}>
         <InfiniteMarquee bubbleItems={sorted} />
       </div>
@@ -409,9 +520,9 @@ export default function ReminderPage({ onAdd }) {
           </p>
         </div>
 
-        {/* Preview cards + CTA */}
+        {/* Preview cards */}
         <div style={styles.previewRow}>
-          {sorted.slice(0, 3).map((item, i) => {
+          {sorted.slice(0, 3).map((item) => {
             const { level, label } = getUrgencyInfo(item.deadline)
             const isUrgent = level === 'critical' || level === 'overdue' || level === 'high'
             return (
@@ -426,10 +537,7 @@ export default function ReminderPage({ onAdd }) {
                 whileHover={{ scale: 1.03, borderColor: 'rgba(255,255,255,0.35)' }}
                 onClick={() => setShowSwipe(true)}
               >
-                <div style={{
-                  ...styles.previewCardKeyword,
-                  color: isUrgent ? '#C0FE37' : '#fff',
-                }}>
+                <div style={{ ...styles.previewCardKeyword, color: isUrgent ? '#C0FE37' : '#fff' }}>
                   {item.mainKeyword}
                 </div>
                 <div style={styles.previewCardLabel}>{label}</div>
@@ -466,20 +574,162 @@ export default function ReminderPage({ onAdd }) {
         +
       </motion.button>
 
-      {/* SwipeMode overlay */}
       <AnimatePresence>
-        {showSwipe && (
-          <SwipeMode items={items} onExit={() => setShowSwipe(false)} />
-        )}
+        {showSwipe && <SwipeMode items={items} onExit={() => setShowSwipe(false)} />}
       </AnimatePresence>
 
-      {/* AddModal */}
       {showAddModal && <AddModal onClose={() => setShowAddModal(false)} />}
     </div>
   )
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Dashboard card styles ────────────────────────────────────────────────────
+const dStyles = {
+  dashRow: {
+    display: 'flex',
+    gap: 16,
+    flexWrap: 'wrap',
+    alignItems: 'stretch',
+  },
+  clockCard: {
+    padding: '20px 24px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    flex: '0 0 auto',
+  },
+  clockFace: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 5,
+  },
+  clockHM: {
+    color: '#fff',
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 'clamp(36px, 4vw, 54px)',
+    fontWeight: 700,
+    letterSpacing: '-0.03em',
+    lineHeight: 1,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  clockSec: {
+    color: 'rgba(255,255,255,0.32)',
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 'clamp(16px, 1.8vw, 24px)',
+    fontWeight: 500,
+    letterSpacing: '-0.02em',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  clockDate: {
+    color: 'rgba(255,255,255,0.42)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 12,
+    fontWeight: 500,
+    letterSpacing: '0.01em',
+  },
+  calCard: {
+    padding: '16px 18px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    flex: '0 0 auto',
+  },
+  calTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  calMonth: {
+    color: '#fff',
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 14,
+    fontWeight: 700,
+    letterSpacing: '-0.01em',
+  },
+  calYear: {
+    color: 'rgba(255,255,255,0.32)',
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 11,
+    fontWeight: 500,
+  },
+  calDayRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(7, 1fr)',
+    gap: 2,
+  },
+  calDayLbl: {
+    color: 'rgba(255,255,255,0.22)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 9,
+    fontWeight: 600,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  calGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(7, 1fr)',
+    gap: 2,
+  },
+  calCell: {
+    alignItems: 'center',
+    borderRadius: 5,
+    display: 'flex',
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 10,
+    height: 22,
+    justifyContent: 'center',
+  },
+  welcomeCard: {
+    padding: '20px 22px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    flex: '1 1 auto',
+    minWidth: 180,
+  },
+  welcomeGreet: {
+    color: '#fff',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 'clamp(20px, 2.2vw, 28px)',
+    fontWeight: 800,
+    letterSpacing: '-0.02em',
+    lineHeight: 1.1,
+  },
+  welcomeMsg: {
+    color: 'rgba(255,255,255,0.52)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 14,
+    fontWeight: 400,
+    lineHeight: 1.55,
+  },
+  urgentBanner: {
+    alignItems: 'center',
+    background: 'rgba(255,100,100,0.10)',
+    border: '1px solid rgba(255,100,100,0.18)',
+    borderRadius: 9999,
+    display: 'inline-flex',
+    gap: 6,
+    marginTop: 4,
+    padding: '5px 12px',
+    alignSelf: 'flex-start',
+  },
+  urgentDot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    background: '#FF7070',
+    display: 'inline-block',
+    flexShrink: 0,
+  },
+  urgentText: {
+    color: 'rgba(255,150,150,0.88)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 11,
+    fontWeight: 600,
+  },
+}
+
+// ─── Page styles ──────────────────────────────────────────────────────────────
 const styles = {
   page: {
     height: '100%',
@@ -496,18 +746,14 @@ const styles = {
     margin: '0 auto',
     display: 'flex',
     flexDirection: 'column',
-    padding: '40px 48px 32px',
+    padding: 'clamp(12px, 3.5vh, 40px) 48px clamp(8px, 2vh, 24px)',
     gap: 32,
   },
-  hero: { display: 'flex', flexDirection: 'column', gap: 6 },
-  h1: { color: '#fff', fontSize: 'clamp(48px, 6vw, 80px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1 },
-  h2: { color: 'rgba(255,255,255,0.65)', fontSize: 'clamp(32px, 4.5vw, 58px)', fontWeight: 300, letterSpacing: '-0.025em' },
-  subtitle: { color: 'rgba(255,255,255,0.45)', fontSize: 15, fontWeight: 400, marginTop: 6 },
   marqueeWrapper: {
     width: '100%',
     overflow: 'hidden',
     padding: '6px 0',
-    flexShrink: 0,          /* 창이 낮아져도 마퀴 영역이 압축되지 않음 */
+    flexShrink: 0,
     WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%)',
     maskImage: 'linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%)',
   },
@@ -527,8 +773,8 @@ const styles = {
     transition: 'border-color 0.2s',
   },
   previewCardKeyword: { fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' },
-  previewCardLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 500 },
-  previewCardSub: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 400 },
+  previewCardLabel:   { color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 500 },
+  previewCardSub:     { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 400 },
   ctaRow: { display: 'flex', alignItems: 'center', gap: 16 },
   ctaBtn: {
     alignItems: 'center',
@@ -569,6 +815,7 @@ const styles = {
   },
 }
 
+// ─── SwipeMode styles ─────────────────────────────────────────────────────────
 const sStyles = {
   overlay: {
     alignItems: 'center',
@@ -658,18 +905,8 @@ const sStyles = {
     textTransform: 'uppercase',
     border: '3px solid',
   },
-  swipeHintDone: {
-    border: '3px solid #C0FE37',
-    color: '#C0FE37',
-    right: 16,
-    transform: 'rotate(12deg)',
-  },
-  swipeHintLater: {
-    border: '3px solid rgba(255,100,100,0.9)',
-    color: 'rgba(255,100,100,0.9)',
-    left: 16,
-    transform: 'rotate(-12deg)',
-  },
+  swipeHintDone:  { border: '3px solid #C0FE37', color: '#C0FE37', right: 16, transform: 'rotate(12deg)' },
+  swipeHintLater: { border: '3px solid rgba(255,100,100,0.9)', color: 'rgba(255,100,100,0.9)', left: 16, transform: 'rotate(-12deg)' },
   cardKeywordPill: {
     borderRadius: 9999,
     display: 'inline-flex',
@@ -682,19 +919,8 @@ const sStyles = {
     alignSelf: 'stretch',
     textAlign: 'center',
   },
-  cardBody: {
-    display: 'flex',
-    gap: 10,
-    flex: 1,
-  },
-  subGrid: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 7,
-    flex: 1,
-    alignContent: 'flex-start',
-    paddingTop: 4,
-  },
+  cardBody:  { display: 'flex', gap: 10, flex: 1 },
+  subGrid:   { display: 'flex', flexWrap: 'wrap', gap: 7, flex: 1, alignContent: 'flex-start', paddingTop: 4 },
   subChip: {
     background: 'rgba(255,255,255,0.15)',
     backdropFilter: 'blur(8px)',
@@ -707,13 +933,7 @@ const sStyles = {
     fontWeight: 600,
     padding: '5px 12px',
   },
-  longPressHint: {
-    color: 'rgba(255,255,255,0.3)',
-    fontSize: 10,
-    fontStyle: 'italic',
-    width: '100%',
-    marginTop: 4,
-  },
+  longPressHint: { color: 'rgba(255,255,255,0.3)', fontSize: 10, fontStyle: 'italic', width: '100%', marginTop: 4 },
   datePanelWrap: { display: 'flex', alignItems: 'flex-start', paddingTop: 4 },
   datePanel: {
     background: 'rgba(255,255,255,0.12)',
@@ -729,7 +949,7 @@ const sStyles = {
     padding: '14px 10px',
     gap: 4,
   },
-  datePanelLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 15, fontWeight: 700 },
+  datePanelLabel:     { color: 'rgba(255,255,255,0.8)', fontSize: 15, fontWeight: 700 },
   datePanelCountdown: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 600, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.06em' },
   locationChip: {
     alignSelf: 'stretch',
@@ -753,17 +973,7 @@ const sStyles = {
     transform: 'translateY(-50%)',
   },
   doneNumber: { color: '#fff', fontSize: 'clamp(48px, 7vw, 72px)', fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1 },
-  doneLabel: { color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 500 },
-  progressRow: {
-    alignItems: 'center',
-    display: 'flex',
-    gap: 5,
-    justifyContent: 'center',
-  },
-  progressDot: {
-    borderRadius: 9999,
-    height: 6,
-    background: 'rgba(255,255,255,0.25)',
-    transition: 'all 0.3s ease',
-  },
+  doneLabel:  { color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 500 },
+  progressRow: { alignItems: 'center', display: 'flex', gap: 5, justifyContent: 'center' },
+  progressDot: { borderRadius: 9999, height: 6, background: 'rgba(255,255,255,0.25)', transition: 'all 0.3s ease' },
 }
