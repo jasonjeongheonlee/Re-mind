@@ -1,17 +1,18 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '../store/useAppStore'
 import { getUrgencyInfo, getBubbleStyle } from '../utils/urgency'
 
 const MIN_SCALE = 0.25
 const MAX_SCALE = 4.0
+const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const URGENCY_ORDER = { overdue: 0, critical: 1, high: 2, medium: 3, low: 4, none: 5 }
 
 // ─── ZoomControls ─────────────────────────────────────────────────────────────
 function ZoomControls({ scale, onZoom }) {
   const pct = Math.round(scale * 100)
   return (
     <div style={zcStyles.panel} onPointerDown={(e) => e.stopPropagation()}>
-      <button style={zcStyles.btn} onClick={() => onZoom(scale * 1.25)}>+</button>
       <input
         type="range"
         min={Math.round(MIN_SCALE * 100)}
@@ -21,6 +22,7 @@ function ZoomControls({ scale, onZoom }) {
         onChange={(e) => onZoom(Number(e.target.value) / 100)}
         style={zcStyles.slider}
       />
+      <button style={zcStyles.btn} onClick={() => onZoom(scale * 1.25)}>+</button>
       <span style={zcStyles.label}>{pct}%</span>
       <button style={zcStyles.btn} onClick={() => onZoom(scale / 1.25)}>−</button>
     </div>
@@ -84,7 +86,6 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
     const onUp = (ev) => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
-
       if (moved) {
         const dx = (ev.clientX - startX) / scale
         const dy = (ev.clientY - startY) / scale
@@ -125,15 +126,15 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
           opacity: bStyle.opacity,
           backdropFilter: isUrgent ? 'none' : 'blur(22px)',
           WebkitBackdropFilter: isUrgent ? 'none' : 'blur(22px)',
-          border: isUrgent ? 'none' : '1px solid rgba(255,255,255,0.38)',
+          border: isUrgent ? 'none' : '1px solid rgba(255,255,255,0.22)',
           boxShadow: isDraggingNow
-            ? `0 20px 60px rgba(0,0,0,0.28), ${isUrgent ? '0 0 28px rgba(192,254,55,0.55)' : '0 0 0 1px rgba(255,255,255,0.3)'}`
+            ? `0 20px 60px rgba(0,0,0,0.38), ${isUrgent ? '0 0 28px rgba(192,254,55,0.55)' : '0 0 0 1px rgba(255,255,255,0.25)'}`
             : isUrgent
             ? '0 0 28px rgba(192,254,55,0.55)'
             : item.chunkId
-            ? '0 0 0 2px rgba(255,255,255,0.4), 0 4px 20px rgba(0,0,0,0.15)'
-            : '0 2px 12px rgba(0,0,0,0.12)',
-          outline: isSelected ? '2px solid rgba(255,255,255,0.85)' : '2px solid transparent',
+            ? '0 0 0 2px rgba(255,255,255,0.25), 0 4px 20px rgba(0,0,0,0.25)'
+            : '0 2px 12px rgba(0,0,0,0.22)',
+          outline: isSelected ? '2px solid rgba(255,255,255,0.75)' : '2px solid transparent',
           outlineOffset: 4,
           cursor: isDraggingNow ? 'grabbing' : 'grab',
           position: 'relative',
@@ -147,9 +148,7 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
   )
 }
 
-// ─── Deadline toast ───────────────────────────────────────────────────────────
-const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
+// ─── DeadlineToast ────────────────────────────────────────────────────────────
 function DeadlineToast({ onSelect, onSkip }) {
   const [picked, setPicked] = useState(null)
 
@@ -208,14 +207,12 @@ function DeadlineToast({ onSelect, onSkip }) {
         })}
       </div>
 
-      <button style={ipStyles.toastSkipBtn} onClick={onSkip}>
-        No deadline
-      </button>
+      <button style={ipStyles.toastSkipBtn} onClick={onSkip}>No deadline</button>
     </motion.div>
   )
 }
 
-// ─── Chunk backgrounds ────────────────────────────────────────────────────────
+// ─── ChunkBackground ──────────────────────────────────────────────────────────
 function ChunkBackground({ items }) {
   const active = items.filter((i) => !i.completed && !i.deferred && i.chunkId)
   const chunks = {}
@@ -238,15 +235,182 @@ function ChunkBackground({ items }) {
           <div key={chunkId} style={{
             position: 'absolute', left: x, top: y, width: w, height: h,
             borderRadius: 36,
-            background: 'rgba(255,255,255,0.06)',
+            background: 'rgba(255,255,255,0.04)',
             backdropFilter: 'blur(4px)',
             WebkitBackdropFilter: 'blur(4px)',
-            border: '1px solid rgba(255,255,255,0.12)',
+            border: '1px solid rgba(255,255,255,0.08)',
             pointerEvents: 'none', zIndex: 0,
           }} />
         )
       })}
     </>
+  )
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+function Dashboard({ items }) {
+  const active   = items.filter((i) => !i.completed && !i.deferred)
+  const overdue  = active.filter((i) => ['overdue', 'critical'].includes(getUrgencyInfo(i.deadline).level))
+  const completed = items.filter((i) => i.completed)
+  const deferred  = items.filter((i) => i.deferred && !i.completed)
+
+  const stats = [
+    { label: 'Active',   value: active.length,     color: '#C0FE37' },
+    { label: 'Overdue',  value: overdue.length,    color: '#FF7070' },
+    { label: 'Deferred', value: deferred.length,   color: 'rgba(255,200,80,0.9)' },
+    { label: 'Done',     value: completed.length,  color: 'rgba(255,255,255,0.40)' },
+  ]
+
+  return (
+    <div style={rStyles.dashboard}>
+      <p style={rStyles.panelTitle}>Overview</p>
+      <div style={rStyles.statsGrid}>
+        {stats.map((s) => (
+          <div key={s.label} style={rStyles.statCell}>
+            <span style={{ ...rStyles.statNum, color: s.color }}>{s.value}</span>
+            <span style={rStyles.statLabel}>{s.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── KeywordRow ───────────────────────────────────────────────────────────────
+function KeywordRow({ item, onComplete, onDefer, onDelete, onRestore }) {
+  const { level } = getUrgencyInfo(item.deadline)
+  const isArchived = item.completed || item.deferred
+  const dotColors = {
+    overdue: '#C0FE37', critical: '#C0FE37', high: '#C0FE37',
+    medium: 'rgba(255,255,255,0.60)', low: 'rgba(255,255,255,0.30)', none: 'rgba(255,255,255,0.18)',
+  }
+
+  return (
+    <div style={rStyles.kwRow}>
+      <div style={{ ...rStyles.urgencyDot, background: dotColors[level] || 'rgba(255,255,255,0.18)' }} />
+      <div style={rStyles.kwContent}>
+        <span style={{ ...rStyles.kwName, ...(isArchived ? rStyles.kwArchived : {}) }}>
+          {item.mainKeyword}
+        </span>
+        <span style={rStyles.kwMeta}>
+          {isArchived
+            ? (item.completed ? 'Done' : 'Deferred')
+            : item.deadline
+            ? new Date(item.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : item.type === 'idea' ? 'Idea' : ''
+          }
+        </span>
+      </div>
+      <div style={rStyles.kwActions}>
+        {isArchived ? (
+          <>
+            <button style={rStyles.kwBtn} onClick={onRestore} title="Restore">↺</button>
+            <button style={{ ...rStyles.kwBtn, ...rStyles.kwBtnDel }} onClick={onDelete} title="Delete">×</button>
+          </>
+        ) : (
+          <>
+            <button style={rStyles.kwBtn} onClick={onComplete} title="Mark done">✓</button>
+            <button style={rStyles.kwBtn} onClick={onDefer} title="Defer 1 day">›</button>
+            <button style={{ ...rStyles.kwBtn, ...rStyles.kwBtnDel }} onClick={onDelete} title="Delete">×</button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── KeywordsList ─────────────────────────────────────────────────────────────
+function KeywordsList({ items }) {
+  const [sort, setSort]     = useState('urgency')
+  const [filter, setFilter] = useState('all')
+  const { completeItem, deferItem, deleteItem, restoreItem } = useAppStore()
+
+  const visible = useMemo(() => {
+    let list = [...items]
+    if (filter === 'active')   list = list.filter((i) => !i.completed && !i.deferred)
+    else if (filter === 'done')     list = list.filter((i) => i.completed)
+    else if (filter === 'deferred') list = list.filter((i) => i.deferred && !i.completed)
+
+    if (sort === 'urgency') {
+      list.sort((a, b) => {
+        const ao = URGENCY_ORDER[getUrgencyInfo(a.deadline).level] ?? 5
+        const bo = URGENCY_ORDER[getUrgencyInfo(b.deadline).level] ?? 5
+        return ao - bo
+      })
+    } else if (sort === 'deadline') {
+      list.sort((a, b) => {
+        if (!a.deadline) return 1
+        if (!b.deadline) return -1
+        return new Date(a.deadline) - new Date(b.deadline)
+      })
+    } else if (sort === 'name') {
+      list.sort((a, b) => a.mainKeyword.localeCompare(b.mainKeyword))
+    } else if (sort === 'type') {
+      list.sort((a, b) => a.type.localeCompare(b.type))
+    }
+    return list
+  }, [items, sort, filter])
+
+  const FILTERS = [
+    { id: 'all', label: 'All' },
+    { id: 'active', label: 'Active' },
+    { id: 'done', label: 'Done' },
+    { id: 'deferred', label: 'Deferred' },
+  ]
+
+  const SORTS = [
+    { id: 'urgency',  label: '!' },
+    { id: 'deadline', label: 'Date' },
+    { id: 'name',     label: 'A–Z' },
+    { id: 'type',     label: 'Type' },
+  ]
+
+  return (
+    <div style={rStyles.listPanel}>
+      <div style={rStyles.listHeader}>
+        <span style={rStyles.panelTitle}>Keywords</span>
+        <div style={rStyles.sortBtns}>
+          {SORTS.map((s) => (
+            <button
+              key={s.id}
+              style={{ ...rStyles.sortBtn, ...(sort === s.id ? rStyles.sortBtnActive : {}) }}
+              onClick={() => setSort(s.id)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={rStyles.filterRow}>
+        {FILTERS.map((f) => (
+          <button
+            key={f.id}
+            style={{ ...rStyles.filterBtn, ...(filter === f.id ? rStyles.filterBtnActive : {}) }}
+            onClick={() => setFilter(f.id)}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={rStyles.listScroll}>
+        {visible.length === 0 ? (
+          <div style={rStyles.listEmpty}>No items</div>
+        ) : (
+          visible.map((item) => (
+            <KeywordRow
+              key={item.id}
+              item={item}
+              onComplete={() => completeItem(item.id)}
+              onDefer={() => deferItem(item.id)}
+              onDelete={() => deleteItem(item.id)}
+              onRestore={() => restoreItem(item.id)}
+            />
+          ))
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -273,7 +437,7 @@ export default function MindmapPage() {
   // ── Bubble selection ──
   const [selectedId, setSelectedId] = useState(null)
 
-  // ── Always-visible input state ──
+  // ── Input state ──
   const [step, setStep] = useState('idle')
   const [mainKeyword, setMainKeyword] = useState('')
   const [subInput, setSubInput] = useState('')
@@ -290,29 +454,25 @@ export default function MindmapPage() {
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-
     const handleWheel = (e) => {
       e.preventDefault()
       const sensitivity = e.ctrlKey ? 1 : 0.45
       const zoomFactor = Math.exp(-e.deltaY * sensitivity / 300)
       const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scaleRef.current * zoomFactor))
-
       const rect = el.getBoundingClientRect()
       const mouseX = e.clientX - rect.left
       const mouseY = e.clientY - rect.top
-
       setPanOffset((prev) => ({
         x: mouseX - (mouseX - prev.x) * (newScale / scaleRef.current),
         y: mouseY - (mouseY - prev.y) * (newScale / scaleRef.current),
       }))
       setScale(newScale)
     }
-
     el.addEventListener('wheel', handleWheel, { passive: false })
     return () => el.removeEventListener('wheel', handleWheel)
   }, [])
 
-  // ── Zoom toward viewport center (for buttons / slider) ──
+  // ── Zoom toward viewport center (buttons / slider) ──
   const zoomToCenter = useCallback((next) => {
     const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
     const cx = (containerRef.current?.clientWidth  ?? window.innerWidth)  / 2
@@ -354,14 +514,17 @@ export default function MindmapPage() {
 
   const doAdd = useCallback((deadlineIso) => {
     if (!mainKeyword.trim()) return
+    const rect = containerRef.current?.getBoundingClientRect()
+    const w = rect?.width  ?? window.innerWidth
+    const h = rect?.height ?? window.innerHeight
     addItem({
       mainKeyword: mainKeyword.trim(),
       subKeywords: subKeywords.map((text, i) => ({ id: `sk-${Date.now()}-${i}`, text })),
       type,
       deadline: deadlineIso || null,
       position: {
-        x: -panRef.current.x + window.innerWidth / 2 - 60 + (Math.random() - 0.5) * 120,
-        y: -panRef.current.y + window.innerHeight / 2 - 80 + (Math.random() - 0.5) * 100,
+        x: -panRef.current.x + w / 2 - 60 + (Math.random() - 0.5) * 120,
+        y: -panRef.current.y + h / 2 - 80 + (Math.random() - 0.5) * 100,
       },
     })
     resetInput()
@@ -416,135 +579,153 @@ export default function MindmapPage() {
                       'Add sub-keywords... (Enter twice to finish)'
 
   return (
-    <div
-      ref={containerRef}
-      style={mStyles.container}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-    >
-      {/* ── Canvas world ── */}
-      <div style={{ ...mStyles.world, transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})` }}>
-        <ChunkBackground items={activeItems} />
-        {activeItems.map((item) => (
-          <BubbleNode
-            key={item.id}
-            item={item}
-            scale={scale}
-            isDraggingAny={isDraggingBubble}
-            isSelected={selectedId === item.id}
-            onSelect={() => setSelectedId(item.id)}
-            onDragStart={() => { isDraggingBubble.current = true; isPanning.current = false }}
-            onDragEnd={() => { setTimeout(() => { isDraggingBubble.current = false }, 50) }}
-          />
-        ))}
+    <div style={mStyles.page}>
+
+      {/* ── Artboard ── */}
+      <div
+        ref={containerRef}
+        style={mStyles.artboard}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+      >
+        {/* Zoom controls — top-left */}
+        <ZoomControls scale={scale} onZoom={zoomToCenter} />
+
+        {/* Canvas world */}
+        <div style={{ ...mStyles.world, transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})` }}>
+          <ChunkBackground items={activeItems} />
+          {activeItems.map((item) => (
+            <BubbleNode
+              key={item.id}
+              item={item}
+              scale={scale}
+              isDraggingAny={isDraggingBubble}
+              isSelected={selectedId === item.id}
+              onSelect={() => setSelectedId(item.id)}
+              onDragStart={() => { isDraggingBubble.current = true; isPanning.current = false }}
+              onDragEnd={() => { setTimeout(() => { isDraggingBubble.current = false }, 50) }}
+            />
+          ))}
+        </div>
+
+        {/* Empty hint */}
+        {activeItems.length === 0 && (
+          <div style={mStyles.emptyHint}>
+            <p style={{ color: 'rgba(255,255,255,0.28)', fontSize: 15, fontWeight: 500, textAlign: 'center', lineHeight: 1.7 }}>
+              No reminders yet.<br />
+              <span style={{ fontSize: 13, opacity: 0.7 }}>Type below to add your first keyword.</span>
+            </p>
+          </div>
+        )}
+
+        {/* Bottom input area */}
+        <div style={mStyles.bottomArea} onPointerDown={(e) => e.stopPropagation()}>
+
+          {/* Sub-keyword chip preview */}
+          <AnimatePresence>
+            {step === 'sub' && (
+              <motion.div
+                style={ipStyles.bubbleRow}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ type: 'spring', damping: 22, stiffness: 300 }}
+              >
+                <span style={ipStyles.mainBubble}>{mainKeyword}</span>
+                {subKeywords.map((kw, i) => (
+                  <motion.span
+                    key={i}
+                    style={ipStyles.subBubble}
+                    initial={{ scale: 0.7, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', damping: 18, stiffness: 280 }}
+                  >
+                    {kw}
+                    <button
+                      style={ipStyles.chipX}
+                      onClick={() => setSubKeywords((p) => p.filter((_, j) => j !== i))}
+                    >✕</button>
+                  </motion.span>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Deadline toast */}
+          <AnimatePresence>
+            {showToast && (
+              <DeadlineToast onSelect={handleDeadlineSelect} onSkip={() => doAdd(null)} />
+            )}
+          </AnimatePresence>
+
+          {/* Input row: pill + standalone CTA */}
+          <div style={mStyles.inputRow}>
+            <div style={mStyles.inputPill} onClick={() => { if (step === 'idle') setStep('main') }}>
+              {/* Type toggle */}
+              <div style={ipStyles.typePill}>
+                {['task', 'idea'].map((t) => (
+                  <button
+                    key={t}
+                    style={{ ...ipStyles.typeBtn, ...(type === t ? ipStyles.typeBtnActive : {}) }}
+                    onClick={(e) => { e.stopPropagation(); setType(t) }}
+                  >
+                    {t === 'task' ? 'Task' : 'Idea'}
+                  </button>
+                ))}
+              </div>
+              {/* Text input */}
+              <input
+                ref={inputRef}
+                className="kw-input"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleInputKey}
+                onFocus={() => { if (step === 'idle') setStep('main') }}
+                placeholder={placeholder}
+                style={mStyles.inputField}
+              />
+            </div>
+
+            {/* Standalone lime CTA */}
+            <motion.button
+              style={mStyles.ctaBtn}
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.90 }}
+              onClick={(e) => { e.stopPropagation(); handleArrow() }}
+            >→</motion.button>
+          </div>
+        </div>
       </div>
 
-      {/* ── Zoom controls ── */}
-      <ZoomControls scale={scale} onZoom={zoomToCenter} />
-
-      {/* ── Empty hint ── */}
-      {activeItems.length === 0 && (
-        <div style={mStyles.emptyHint}>
-          <p style={{ color: 'rgba(30,84,186,0.6)', fontSize: 16, fontWeight: 500, textAlign: 'center' }}>
-            No reminders yet.<br />
-            <span style={{ fontSize: 13, opacity: 0.7 }}>Tap the field below to add your first keyword.</span>
-          </p>
-        </div>
-      )}
-
-      {/* ── Bottom input area (always visible) ── */}
-      <div
-        style={mStyles.bottomArea}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        {/* Bubble preview row */}
-        <AnimatePresence>
-          {step === 'sub' && (
-            <motion.div
-              style={ipStyles.bubbleRow}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              transition={{ type: 'spring', damping: 22, stiffness: 300 }}
-            >
-              <span style={ipStyles.mainBubble}>{mainKeyword}</span>
-              {subKeywords.map((kw, i) => (
-                <motion.span
-                  key={i}
-                  style={ipStyles.subBubble}
-                  initial={{ scale: 0.7, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: 'spring', damping: 18, stiffness: 280 }}
-                >
-                  {kw}
-                  <button
-                    style={ipStyles.chipX}
-                    onClick={() => setSubKeywords((p) => p.filter((_, j) => j !== i))}
-                  >✕</button>
-                </motion.span>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Deadline toast */}
-        <AnimatePresence>
-          {showToast && (
-            <DeadlineToast
-              onSelect={handleDeadlineSelect}
-              onSkip={() => doAdd(null)}
-            />
-          )}
-        </AnimatePresence>
-
-        {/* ── Always-visible pill ── */}
-        <div style={mStyles.inputPill} onClick={() => { if (step === 'idle') { setStep('main') } }}>
-          {/* Type toggle */}
-          <div style={ipStyles.typePill}>
-            {['task', 'idea'].map((t) => (
-              <button
-                key={t}
-                style={{ ...ipStyles.typeBtn, ...(type === t ? ipStyles.typeBtnActive : {}) }}
-                onClick={(e) => { e.stopPropagation(); setType(t) }}
-              >
-                {t === 'task' ? 'Task' : 'Idea'}
-              </button>
-            ))}
-          </div>
-
-          {/* Text input */}
-          <input
-            ref={inputRef}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleInputKey}
-            onFocus={() => { if (step === 'idle') setStep('main') }}
-            placeholder={placeholder}
-            style={mStyles.inputField}
-          />
-
-          {/* → CTA */}
-          <motion.button
-            style={mStyles.arrowBtn}
-            whileHover={{ scale: 1.08 }}
-            whileTap={{ scale: 0.92 }}
-            onClick={(e) => { e.stopPropagation(); handleArrow() }}
-          >→</motion.button>
-        </div>
+      {/* ── Right column ── */}
+      <div style={rStyles.rightCol}>
+        <Dashboard items={items} />
+        <KeywordsList items={items} />
       </div>
     </div>
   )
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Artboard styles ──────────────────────────────────────────────────────────
 const mStyles = {
-  container: {
+  page: {
     height: '100%',
     width: '100%',
+    display: 'flex',
+    padding: 12,
+    gap: 12,
+  },
+  artboard: {
+    flex: 1,
     position: 'relative',
     overflow: 'hidden',
+    borderRadius: 20,
+    background: 'rgba(255,255,255,0.05)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    border: '1px solid rgba(255,255,255,0.09)',
     cursor: 'grab',
   },
   world: {
@@ -563,96 +744,82 @@ const mStyles = {
     pointerEvents: 'none',
   },
   bottomArea: {
-    bottom: 32,
-    left: '50%',
     position: 'absolute',
-    transform: 'translateX(-50%)',
-    width: 520,
+    bottom: 20,
+    left: 20,
+    right: 20,
     zIndex: 20,
     display: 'flex',
     flexDirection: 'column',
-    gap: 10,
+    gap: 8,
+  },
+  inputRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
   },
   inputPill: {
+    flex: 1,
     alignItems: 'center',
-    background: 'rgba(255,255,255,0.65)',
+    background: 'rgba(255,255,255,0.12)',
     backdropFilter: 'blur(20px)',
     WebkitBackdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,0.8)',
+    border: '1px solid rgba(255,255,255,0.18)',
     borderRadius: 9999,
     display: 'flex',
     gap: 8,
     padding: '4px 4px 4px 8px',
-    boxShadow: '0 8px 32px rgba(30,84,186,0.12)',
     cursor: 'text',
-    flexShrink: 0,
   },
   inputField: {
     background: 'transparent',
     border: 'none',
-    color: 'rgba(20,30,90,0.85)',
+    color: 'rgba(255,255,255,0.85)',
     flex: 1,
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 15,
     fontWeight: 400,
     outline: 'none',
-    padding: '4px 0',
+    padding: '6px 0',
     minWidth: 0,
   },
-  arrowBtn: {
-    alignItems: 'center',
-    background: '#1E54BA',
-    border: 'none',
+  ctaBtn: {
+    width: 48,
+    height: 48,
     borderRadius: 9999,
-    color: '#fff',
+    border: 'none',
+    background: '#C0FE37',
+    color: '#000',
     cursor: 'pointer',
+    fontSize: 22,
+    fontWeight: 800,
     display: 'flex',
-    fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 18,
-    fontWeight: 600,
-    height: 36,
+    alignItems: 'center',
     justifyContent: 'center',
-    width: 36,
     flexShrink: 0,
+    fontFamily: "'Rethink Sans', sans-serif",
+    boxShadow: '0 4px 20px rgba(192,254,55,0.30)',
   },
 }
 
+// ─── Input area styles ────────────────────────────────────────────────────────
 const ipStyles = {
   toast: {
-    background: 'rgba(10,20,60,0.82)',
+    background: 'rgba(10,20,60,0.88)',
     backdropFilter: 'blur(28px)',
     WebkitBackdropFilter: 'blur(28px)',
-    border: '1px solid rgba(255,255,255,0.22)',
+    border: '1px solid rgba(255,255,255,0.18)',
     borderRadius: 24,
-    boxShadow: '0 8px 36px rgba(0,0,0,0.30)',
+    boxShadow: '0 8px 36px rgba(0,0,0,0.40)',
     display: 'flex',
     flexDirection: 'column',
     gap: 16,
     padding: '18px 20px',
   },
-  toastHeader: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
-  },
-  toastQuestion: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: 700,
-    letterSpacing: '-0.01em',
-  },
-  toastSub: {
-    color: 'rgba(255,255,255,0.38)',
-    fontSize: 12,
-    fontWeight: 500,
-    letterSpacing: '-0.01em',
-  },
-  // 7-day grid
-  dayGrid: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 4,
-  },
+  toastHeader: { display: 'flex', flexDirection: 'column', gap: 2 },
+  toastQuestion: { color: '#fff', fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em' },
+  toastSub: { color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: 500 },
+  dayGrid: { display: 'flex', justifyContent: 'space-between', gap: 4 },
   dayBtn: {
     display: 'flex',
     flexDirection: 'column',
@@ -661,8 +828,8 @@ const ipStyles = {
     width: 56,
     padding: '10px 0 8px',
     borderRadius: 16,
-    border: '1px solid rgba(255,255,255,0.14)',
-    background: 'rgba(255,255,255,0.08)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: 'rgba(255,255,255,0.07)',
     cursor: 'pointer',
     transition: 'background 0.15s, border-color 0.15s',
     flexShrink: 0,
@@ -673,7 +840,7 @@ const ipStyles = {
     boxShadow: '0 4px 16px rgba(30,84,186,0.45)',
   },
   dayWeekday: {
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(255,255,255,0.40)',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 10,
     fontWeight: 600,
@@ -681,7 +848,7 @@ const ipStyles = {
     textTransform: 'uppercase',
   },
   dayDate: {
-    color: 'rgba(255,255,255,0.88)',
+    color: 'rgba(255,255,255,0.85)',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 18,
     fontWeight: 800,
@@ -689,41 +856,32 @@ const ipStyles = {
     lineHeight: 1,
   },
   dayBadge: {
-    background: 'rgba(255,255,255,0.10)',
+    background: 'rgba(255,255,255,0.08)',
     borderRadius: 9999,
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(255,255,255,0.40)',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 9,
     fontWeight: 700,
     letterSpacing: '0.02em',
     padding: '2px 6px',
   },
-  dayBadgeActive: {
-    background: 'rgba(255,255,255,0.20)',
-    color: '#fff',
-  },
+  dayBadgeActive: { background: 'rgba(255,255,255,0.18)', color: '#fff' },
   toastSkipBtn: {
     alignSelf: 'center',
     background: 'transparent',
     border: 'none',
-    color: 'rgba(255,255,255,0.32)',
+    color: 'rgba(255,255,255,0.28)',
     cursor: 'pointer',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 12,
     fontWeight: 600,
-    letterSpacing: '0.02em',
     padding: '4px 8px',
     textDecoration: 'underline',
     textUnderlineOffset: 3,
-    textDecorationColor: 'rgba(255,255,255,0.15)',
+    textDecorationColor: 'rgba(255,255,255,0.12)',
   },
 
-  bubbleRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 7,
-    alignItems: 'center',
-  },
+  bubbleRow: { display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' },
   mainBubble: {
     background: '#C0FE37',
     borderRadius: 9999,
@@ -737,12 +895,12 @@ const ipStyles = {
   },
   subBubble: {
     alignItems: 'center',
-    background: 'rgba(255,255,255,0.28)',
+    background: 'rgba(255,255,255,0.14)',
     backdropFilter: 'blur(12px)',
     WebkitBackdropFilter: 'blur(12px)',
-    border: '1px solid rgba(255,255,255,0.42)',
+    border: '1px solid rgba(255,255,255,0.25)',
     borderRadius: 9999,
-    color: '#fff',
+    color: 'rgba(255,255,255,0.85)',
     display: 'inline-flex',
     fontSize: 12,
     fontWeight: 600,
@@ -750,18 +908,15 @@ const ipStyles = {
     padding: '5px 10px 5px 14px',
   },
   chipX: {
-    background: 'none',
-    border: 'none',
-    color: 'rgba(255,255,255,0.55)',
-    cursor: 'pointer',
-    fontSize: 9,
+    background: 'none', border: 'none',
+    color: 'rgba(255,255,255,0.45)',
+    cursor: 'pointer', fontSize: 9,
     fontFamily: "'Rethink Sans', sans-serif",
-    lineHeight: 1,
-    padding: '0 2px',
+    lineHeight: 1, padding: '0 2px',
   },
 
   typePill: {
-    background: 'rgba(0,0,0,0.10)',
+    background: 'rgba(255,255,255,0.10)',
     borderRadius: 9999,
     display: 'flex',
     gap: 2,
@@ -772,7 +927,7 @@ const ipStyles = {
     background: 'transparent',
     border: 'none',
     borderRadius: 9999,
-    color: 'rgba(20,30,90,0.40)',
+    color: 'rgba(255,255,255,0.40)',
     cursor: 'pointer',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 11,
@@ -781,41 +936,36 @@ const ipStyles = {
     transition: 'all 0.18s',
     whiteSpace: 'nowrap',
   },
-  typeBtnActive: {
-    background: '#C0FE37',
-    color: '#000',
-  },
+  typeBtnActive: { background: '#C0FE37', color: '#000' },
 }
 
 // ─── Zoom controls styles ─────────────────────────────────────────────────────
 const zcStyles = {
   panel: {
     position: 'absolute',
+    top: 16,
     left: 16,
-    top: '50%',
-    transform: 'translateY(-50%)',
     zIndex: 20,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     padding: '10px 8px',
-    background: 'rgba(255,255,255,0.65)',
+    background: 'rgba(255,255,255,0.09)',
     backdropFilter: 'blur(20px)',
     WebkitBackdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,0.8)',
-    borderRadius: 20,
-    boxShadow: '0 8px 32px rgba(30,84,186,0.12)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    borderRadius: 16,
     userSelect: 'none',
   },
   btn: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     borderRadius: 9999,
     border: 'none',
-    background: '#1E54BA',
-    color: '#fff',
-    fontSize: 16,
+    background: 'rgba(255,255,255,0.12)',
+    color: 'rgba(255,255,255,0.80)',
+    fontSize: 14,
     fontWeight: 700,
     fontFamily: "'Rethink Sans', sans-serif",
     cursor: 'pointer',
@@ -831,14 +981,195 @@ const zcStyles = {
     width: 4,
     height: 80,
     cursor: 'pointer',
-    accentColor: '#1E54BA',
+    accentColor: '#C0FE37',
   },
   label: {
-    color: 'rgba(20,30,90,0.70)',
+    color: 'rgba(255,255,255,0.45)',
     fontSize: 10,
     fontWeight: 700,
     fontFamily: "'Rethink Sans', sans-serif",
     letterSpacing: '-0.01em',
     textAlign: 'center',
   },
+}
+
+// ─── Right column styles ──────────────────────────────────────────────────────
+const rStyles = {
+  rightCol: {
+    width: 252,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+    flexShrink: 0,
+  },
+
+  // Dashboard
+  dashboard: {
+    borderRadius: 20,
+    background: 'rgba(200,208,240,0.14)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255,255,255,0.16)',
+    padding: '18px 20px',
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 16,
+  },
+  panelTitle: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+  },
+  statsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' },
+  statCell: { display: 'flex', flexDirection: 'column', gap: 3 },
+  statNum: {
+    fontSize: 30,
+    fontWeight: 800,
+    letterSpacing: '-0.03em',
+    lineHeight: 1,
+    fontFamily: "'Rethink Sans', sans-serif",
+  },
+  statLabel: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+  },
+
+  // Keywords list
+  listPanel: {
+    flex: 1,
+    minHeight: 0,
+    borderRadius: 20,
+    background: 'rgba(65,80,138,0.20)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  listHeader: {
+    alignItems: 'center',
+    display: 'flex',
+    justifyContent: 'space-between',
+    padding: '16px 16px 8px',
+    flexShrink: 0,
+  },
+  sortBtns: { display: 'flex', gap: 2 },
+  sortBtn: {
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 9999,
+    color: 'rgba(255,255,255,0.30)',
+    cursor: 'pointer',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 10,
+    fontWeight: 600,
+    padding: '3px 7px',
+    transition: 'all 0.15s',
+  },
+  sortBtnActive: {
+    background: 'rgba(255,255,255,0.10)',
+    color: 'rgba(255,255,255,0.80)',
+  },
+  filterRow: {
+    display: 'flex',
+    gap: 4,
+    padding: '0 16px 10px',
+    flexShrink: 0,
+    flexWrap: 'wrap',
+  },
+  filterBtn: {
+    background: 'transparent',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 9999,
+    color: 'rgba(255,255,255,0.35)',
+    cursor: 'pointer',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 10,
+    fontWeight: 600,
+    padding: '3px 9px',
+    transition: 'all 0.15s',
+  },
+  filterBtnActive: {
+    background: 'rgba(192,254,55,0.12)',
+    border: '1px solid rgba(192,254,55,0.30)',
+    color: '#C0FE37',
+  },
+  listScroll: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: '0 10px 16px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  listEmpty: {
+    color: 'rgba(255,255,255,0.22)',
+    fontSize: 12,
+    padding: '24px 4px',
+    textAlign: 'center',
+    fontFamily: "'Rethink Sans', sans-serif",
+  },
+  kwRow: {
+    alignItems: 'center',
+    borderRadius: 10,
+    display: 'flex',
+    gap: 8,
+    padding: '7px 8px',
+    transition: 'background 0.12s',
+  },
+  urgencyDot: { width: 6, height: 6, borderRadius: 9999, flexShrink: 0 },
+  kwContent: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 1,
+    minWidth: 0,
+  },
+  kwName: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 13,
+    fontWeight: 600,
+    letterSpacing: '-0.01em',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontFamily: "'Rethink Sans', sans-serif",
+  },
+  kwArchived: {
+    opacity: 0.38,
+    textDecoration: 'line-through',
+    textDecorationColor: 'rgba(255,255,255,0.25)',
+  },
+  kwMeta: {
+    color: 'rgba(255,255,255,0.30)',
+    fontSize: 10,
+    fontWeight: 500,
+    fontFamily: "'Rethink Sans', sans-serif",
+  },
+  kwActions: { display: 'flex', gap: 2, flexShrink: 0 },
+  kwBtn: {
+    alignItems: 'center',
+    background: 'rgba(255,255,255,0.07)',
+    border: 'none',
+    borderRadius: 9999,
+    color: 'rgba(255,255,255,0.50)',
+    cursor: 'pointer',
+    display: 'flex',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 12,
+    fontWeight: 700,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
+    transition: 'all 0.12s',
+    lineHeight: 1,
+  },
+  kwBtnDel: { color: 'rgba(255,100,100,0.55)' },
 }

@@ -6,30 +6,23 @@ export default function Navbar({ activeTab, onTabChange }) {
 
   const tabs = [
     { id: 'reminder', label: 'Reminder' },
-    { id: 'mindmap',  label: 'Mindmap'  },
     { id: 'rewinder', label: 'Rewinder' },
   ]
 
   return (
     <nav style={s.nav}>
-      {/* Logo row */}
       <div style={s.logoRow}>
         <span style={s.logo}>re:minder</span>
       </div>
 
-      {/* Thin separator */}
       <div style={s.separator} />
 
-      {/* Tabs row */}
       <div style={s.tabsRow}>
         <div style={s.tabGroup}>
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              style={{
-                ...s.tab,
-                ...(activeTab === tab.id ? s.tabActive : {}),
-              }}
+              style={{ ...s.tab, ...(activeTab === tab.id ? s.tabActive : {}) }}
               onClick={() => onTabChange(tab.id)}
             >
               {tab.label}
@@ -60,7 +53,7 @@ const s = {
   },
   separator: {
     height: 1,
-    background: 'linear-gradient(90deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.08) 60%, transparent 100%)',
+    background: 'linear-gradient(90deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.06) 60%, transparent 100%)',
     margin: '0 36px',
   },
   tabsRow: {
@@ -77,7 +70,7 @@ const s = {
     background: 'transparent',
     border: 'none',
     borderRadius: 9999,
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.40)',
     cursor: 'pointer',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 13,
@@ -87,17 +80,17 @@ const s = {
     transition: 'all 0.2s ease',
   },
   tabActive: {
-    background: 'rgba(255,255,255,0.15)',
+    background: 'rgba(255,255,255,0.12)',
     color: '#fff',
     fontWeight: 700,
   },
   dateChip: {
-    background: 'rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.08)',
     backdropFilter: 'blur(12px)',
     WebkitBackdropFilter: 'blur(12px)',
-    border: '1px solid rgba(255,255,255,0.16)',
+    border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 9999,
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 11,
     fontWeight: 600,
     letterSpacing: '0.06em',

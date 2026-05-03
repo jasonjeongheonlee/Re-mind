@@ -13,7 +13,7 @@ html, body, #root {
 body {
   font-family: 'Rethink Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: #7a9ec0;
+  background: #141d35;
 }
 
 .app {
@@ -28,21 +28,24 @@ body {
   flex: 1;
   overflow: hidden;
   position: relative;
+  min-height: 0;
 }
 
 /* Scrollbars */
-::-webkit-scrollbar { width: 0; height: 0; }
-* { scrollbar-width: none; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 9999px; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
 
-/* ─── Unified aurora background (all 3 pages + navbar) ───────────────────── */
+/* ─── Dark aurora background ─────────────────────────────────────────────── */
 .app-bg {
   background:
-    radial-gradient(ellipse at 3% 8%,  rgba(12, 42, 185, 0.98) 0%, transparent 44%),
-    radial-gradient(ellipse at 86% 86%, rgba(0, 185, 95, 0.94)  0%, transparent 44%),
-    radial-gradient(ellipse at 93% 5%,  rgba(15, 175, 210, 0.58) 0%, transparent 32%),
-    radial-gradient(ellipse at 48% 100%, rgba(140, 228, 18, 0.46) 0%, transparent 38%),
-    radial-gradient(ellipse at 55% 30%, rgba(210, 220, 255, 0.18) 0%, transparent 42%),
-    #8caece;
+    radial-gradient(ellipse at 3% 8%,   rgba(12, 42, 185, 0.60) 0%, transparent 44%),
+    radial-gradient(ellipse at 86% 86%, rgba(0, 185, 95,  0.38) 0%, transparent 44%),
+    radial-gradient(ellipse at 93% 5%,  rgba(15, 175, 210, 0.28) 0%, transparent 32%),
+    radial-gradient(ellipse at 48% 100%, rgba(140, 228, 18, 0.14) 0%, transparent 38%),
+    radial-gradient(ellipse at 55% 30%, rgba(210, 220, 255, 0.06) 0%, transparent 42%),
+    #141d35;
   position: relative;
 }
 
@@ -54,14 +57,14 @@ body {
     90deg,
     transparent,
     transparent 20px,
-    rgba(70, 90, 160, 0.08) 20px,
-    rgba(70, 90, 160, 0.08) 21px
+    rgba(100, 120, 200, 0.05) 20px,
+    rgba(100, 120, 200, 0.05) 21px
   );
   pointer-events: none;
   z-index: 0;
 }
 
-/* ─── Pill / Capsule bubble shape ─────────────────────────────────────────── */
+/* ─── Pill / Capsule bubble shape ────────────────────────────────────────── */
 .bubble {
   border-radius: 9999px;
   display: inline-flex;
@@ -81,30 +84,30 @@ body {
 }
 
 .bubble-glass {
-  background: rgba(255, 255, 255, 0.26);
-  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.90);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.22);
 }
 
 /* Glass card */
 .glass-card {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 20px;
 }
 
 /* Input glass */
 .glass-input {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.10);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 9999px;
-  color: #fff;
+  color: rgba(255, 255, 255, 0.88);
   font-family: 'Rethink Sans', sans-serif;
   font-size: 15px;
   outline: none;
@@ -113,10 +116,8 @@ body {
   transition: border-color 0.2s;
 }
 
-.glass-input::placeholder {
-  color: rgba(255, 255, 255, 0.45);
-}
+.glass-input::placeholder { color: rgba(255, 255, 255, 0.35); }
+.glass-input:focus { border-color: rgba(255, 255, 255, 0.40); }
 
-.glass-input:focus {
-  border-color: rgba(255, 255, 255, 0.55);
-}
+/* Artboard keyword input placeholder */
+.kw-input::placeholder { color: rgba(255, 255, 255, 0.30); }
