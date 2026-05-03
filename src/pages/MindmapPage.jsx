@@ -1,7 +1,17 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion'
 import { useAppStore } from '../store/useAppStore'
-import { getUrgencyInfo, getBubbleStyle } from '../utils/urgency'
+import { getUrgencyInfo, getBubbleStyle, getCountdown } from '../utils/urgency'
+
+function useCountdownTick(deadline) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!deadline) return
+    const id = setInterval(() => setTick((t) => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [deadline])
+  return getCountdown(deadline)
+}
 
 const MIN_SCALE = 0.25
 const MAX_SCALE = 4.0
@@ -287,17 +297,24 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
 
 // ─── BubbleDetailPopup ────────────────────────────────────────────────────────
 function BubbleDetailPopup({ item, panOffset, scale, onClose }) {
+  const { deleteItem } = useAppStore()
   const { level, label } = getUrgencyInfo(item.deadline)
   const isUrgent = ['overdue', 'critical', 'high'].includes(level)
   const { cx, cy, ry } = bubbleMetrics(item)
+  const countdown = useCountdownTick(item.deadline)
 
   // Convert world center to artboard coordinates
   const screenX = cx * scale + panOffset.x
-  const screenY = (cy - ry) * scale + panOffset.y - 12  // above bubble top edge
+  const screenY = (cy - ry) * scale + panOffset.y - 14
 
   const deadlineStr = item.deadline
     ? new Date(item.deadline).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
     : null
+
+  const handleDelete = () => {
+    deleteItem(item.id)
+    onClose()
+  }
 
   return (
     <motion.div
@@ -308,13 +325,13 @@ function BubbleDetailPopup({ item, panOffset, scale, onClose }) {
         transform: 'translate(-50%, -100%)',
         zIndex: 40,
         pointerEvents: 'auto',
-        minWidth: 200,
-        maxWidth: 280,
+        minWidth: 240,
+        maxWidth: 320,
       }}
-      initial={{ opacity: 0, y: 10, scale: 0.94 }}
+      initial={{ opacity: 0, y: 12, scale: 0.92 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 6, scale: 0.94 }}
-      transition={{ type: 'spring', damping: 24, stiffness: 360 }}
+      exit={{ opacity: 0, y: 8, scale: 0.92 }}
+      transition={{ type: 'spring', damping: 22, stiffness: 340 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div style={dpStyles.card}>
@@ -338,17 +355,47 @@ function BubbleDetailPopup({ item, panOffset, scale, onClose }) {
           </div>
         )}
 
+        {/* Deadline info */}
+        {item.deadline && (
+          <div style={dpStyles.deadlineBlock}>
+            <div style={dpStyles.deadlineRow}>
+              <div style={dpStyles.deadlineStat}>
+                <span style={dpStyles.deadlineStatLabel}>Remaining</span>
+                <span style={{
+                  ...dpStyles.deadlineStatVal,
+                  color: isUrgent ? '#FF7070' : '#C0FE37',
+                }}>
+                  {countdown ?? 'Overdue'}
+                </span>
+              </div>
+              <div style={dpStyles.deadlineDivider} />
+              <div style={dpStyles.deadlineStat}>
+                <span style={dpStyles.deadlineStatLabel}>Target</span>
+                <span style={dpStyles.deadlineStatDate}>{deadlineStr}</span>
+              </div>
+            </div>
+            <div style={{ ...dpStyles.urgencyPill, background: isUrgent ? 'rgba(255,100,100,0.12)' : 'rgba(192,254,55,0.08)', borderColor: isUrgent ? 'rgba(255,100,100,0.22)' : 'rgba(192,254,55,0.18)', color: isUrgent ? '#FF9090' : 'rgba(192,254,55,0.75)' }}>
+              {label}
+            </div>
+          </div>
+        )}
+
         {/* Meta row */}
         <div style={dpStyles.metaRow}>
           <span style={{ ...dpStyles.metaBadge, background: item.type === 'idea' ? 'rgba(136,174,219,0.18)' : 'rgba(255,255,255,0.10)', color: item.type === 'idea' ? '#88AEDB' : 'rgba(255,255,255,0.55)', borderColor: item.type === 'idea' ? 'rgba(136,174,219,0.25)' : 'rgba(255,255,255,0.12)' }}>
             {item.type === 'idea' ? 'Idea' : 'Task'}
           </span>
-          {deadlineStr && (
-            <span style={{ ...dpStyles.metaBadge, background: isUrgent ? 'rgba(255,100,100,0.12)' : 'rgba(255,255,255,0.08)', color: isUrgent ? '#FF7070' : 'rgba(255,255,255,0.45)', borderColor: isUrgent ? 'rgba(255,100,100,0.22)' : 'rgba(255,255,255,0.10)' }}>
-              {label} · {deadlineStr}
+          {!item.deadline && (
+            <span style={{ ...dpStyles.metaBadge, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.30)', borderColor: 'rgba(255,255,255,0.08)' }}>
+              No deadline
             </span>
           )}
         </div>
+
+        {/* Delete button */}
+        <button style={dpStyles.deleteBtn} onClick={handleDelete}>
+          Delete
+        </button>
 
         {/* Arrow pointing down */}
         <div style={dpStyles.arrow} />
@@ -475,71 +522,105 @@ function Dashboard({ items }) {
   )
 }
 
-// ─── SwipeableKeywordCard ─────────────────────────────────────────────────────
-function SwipeableKeywordCard({ item, stackIdx, isTop, isUrgent, onComplete, onSnooze }) {
-  const x = useMotionValue(0)
-  const rotate = useTransform(x, [-120, 120], [-8, 8])
-  const completeOpacity = useTransform(x, [20, 70], [0, 1])
-  const snoozeOpacity   = useTransform(x, [-70, -20], [1, 0])
-
-  const handleDragEnd = (_, info) => {
-    if (info.offset.x > 80)       onComplete()
-    else if (info.offset.x < -80) onSnooze()
-  }
+// ─── QueueItem ────────────────────────────────────────────────────────────────
+function QueueItem({ item, onComplete, onDefer, onRestore }) {
+  const { level } = getUrgencyInfo(item.deadline)
+  const isUrgent = ['overdue', 'critical', 'high'].includes(level)
+  const [showDeferMenu, setShowDeferMenu] = useState(false)
+  const longTimer = useRef(null)
 
   const deadline = item.deadline
     ? new Date(item.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : null
 
-  if (!isTop) {
-    return (
-      <div style={{
-        ...rStyles.stackCard,
-        transform: `translateY(${stackIdx * 5}px) scale(${1 - stackIdx * 0.04})`,
-        zIndex: 10 - stackIdx,
-        opacity: 1 - stackIdx * 0.25,
-        pointerEvents: 'none',
-      }} />
-    )
+  const handleHandlePressStart = () => {
+    longTimer.current = setTimeout(() => setShowDeferMenu(true), 500)
+  }
+  const handleHandlePressEnd = () => {
+    if (longTimer.current) { clearTimeout(longTimer.current); longTimer.current = null }
   }
 
   return (
     <motion.div
-      drag="x"
-      dragMomentum={false}
-      dragElastic={0.12}
-      style={{ x, rotate, ...rStyles.stackCard, zIndex: 20, cursor: 'grab' }}
-      initial={{ scale: 0.95, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: 'spring', damping: 22, stiffness: 300 }}
-      onDragEnd={handleDragEnd}
+      style={{ ...rStyles.queueItem, opacity: item.completed ? 0.6 : 1 }}
+      layout
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: item.completed ? 0.6 : 1, y: 0 }}
+      exit={{ opacity: 0, x: 16, scale: 0.96 }}
+      transition={{ type: 'spring', damping: 24, stiffness: 340 }}
     >
-      <motion.span style={{ ...rStyles.swipeBadge, ...rStyles.swipeBadgeLeft,  opacity: snoozeOpacity }}>+1d</motion.span>
-      <motion.span style={{ ...rStyles.swipeBadge, ...rStyles.swipeBadgeRight, opacity: completeOpacity }}>✓</motion.span>
+      {/* Left drag/defer handle */}
+      <button
+        style={rStyles.queueHandle}
+        onPointerDown={handleHandlePressStart}
+        onPointerUp={handleHandlePressEnd}
+        onPointerLeave={handleHandlePressEnd}
+        onClick={() => !item.completed && setShowDeferMenu((v) => !v)}
+        title="Click or hold to snooze"
+      >
+        <span style={rStyles.queueHandleDots}>⠿</span>
+      </button>
 
-      <div style={rStyles.stackCardInner}>
-        <span style={{ ...rStyles.stackKw, color: isUrgent ? '#C0FE37' : 'rgba(255,255,255,0.90)' }}>
+      {/* Content */}
+      <div style={rStyles.queueContent}>
+        {deadline && (
+          <span style={{
+            ...rStyles.queueDate,
+            color: isUrgent ? '#FF9090' : 'rgba(255,255,255,0.32)',
+          }}>
+            {deadline}
+          </span>
+        )}
+        <span style={{
+          ...rStyles.queueKw,
+          color: item.completed ? 'rgba(255,255,255,0.45)' : isUrgent ? '#C0FE37' : 'rgba(255,255,255,0.88)',
+          textDecoration: item.completed ? 'line-through' : 'none',
+        }}>
           {item.mainKeyword}
         </span>
-        <div style={rStyles.stackMeta}>
-          {deadline && <span style={rStyles.stackDl}>{deadline}</span>}
-          {item.type === 'idea' && <span style={rStyles.stackTypeBadge}>Idea</span>}
-        </div>
       </div>
 
-      <div style={rStyles.stackSwipeHints}>
-        <span style={rStyles.stackHint}>← snooze</span>
-        <span style={rStyles.stackHint}>done →</span>
-      </div>
+      {/* Circular checkbox */}
+      <button
+        style={{
+          ...rStyles.checkCircle,
+          background: item.completed ? '#C0FE37' : 'transparent',
+          borderColor: item.completed ? '#C0FE37' : isUrgent ? 'rgba(192,254,55,0.45)' : 'rgba(255,255,255,0.22)',
+        }}
+        onClick={() => item.completed ? onRestore() : onComplete()}
+        title={item.completed ? 'Restore' : 'Mark done'}
+      >
+        {item.completed && (
+          <span style={{ color: '#000', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>✓</span>
+        )}
+      </button>
+
+      {/* Defer context menu */}
+      <AnimatePresence>
+        {showDeferMenu && !item.completed && (
+          <motion.div
+            style={rStyles.deferMenu}
+            initial={{ opacity: 0, scale: 0.88, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.88, y: -4 }}
+            transition={{ type: 'spring', damping: 22, stiffness: 380 }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button style={rStyles.deferMenuBtn} onClick={() => { onDefer(); setShowDeferMenu(false) }}>
+              Snooze +1d
+            </button>
+            <button style={rStyles.deferMenuClose} onClick={() => setShowDeferMenu(false)}>✕</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }
 
-// ─── SwipeableCardStack ───────────────────────────────────────────────────────
-function SwipeableCardStack({ items }) {
-  const { completeItem, updateItem } = useAppStore()
-  const [filter, setFilter]    = useState('active')
-  const [topIndex, setTopIndex] = useState(0)
+// ─── QueueCardList ────────────────────────────────────────────────────────────
+function QueueCardList({ items }) {
+  const { completeItem, updateItem, restoreItem } = useAppStore()
+  const [filter, setFilter] = useState('active')
 
   const sorted = useMemo(() => {
     let list = [...items]
@@ -553,8 +634,6 @@ function SwipeableCardStack({ items }) {
     return list
   }, [items, filter])
 
-  useEffect(() => { setTopIndex(0) }, [filter])
-
   const snooze = useCallback((id) => {
     const item = items.find((i) => i.id === id)
     const base = item?.deadline ? new Date(item.deadline) : new Date()
@@ -562,11 +641,6 @@ function SwipeableCardStack({ items }) {
     base.setHours(9, 0, 0, 0)
     updateItem(id, { deadline: base.toISOString() })
   }, [items, updateItem])
-
-  const advance = useCallback(() => setTopIndex((i) => i + 1), [])
-
-  const visibleSlice = sorted.slice(topIndex, topIndex + 3)
-  const allDone      = sorted.length - topIndex <= 0
 
   const FILTERS = [
     { id: 'active', label: 'Active' },
@@ -583,7 +657,7 @@ function SwipeableCardStack({ items }) {
             <button
               key={f.id}
               style={{ ...rStyles.filterBtn, ...(filter === f.id ? rStyles.filterBtnActive : {}) }}
-              onClick={() => { setFilter(f.id); setTopIndex(0) }}
+              onClick={() => setFilter(f.id)}
             >
               {f.label}
             </button>
@@ -591,49 +665,37 @@ function SwipeableCardStack({ items }) {
         </div>
       </div>
 
-      {!allDone && sorted.length > 0 && (
-        <div style={rStyles.stackProgress}>
-          <span style={rStyles.stackProgressText}>{topIndex} / {sorted.length}</span>
-        </div>
-      )}
+      <div style={rStyles.queueCountRow}>
+        <span style={rStyles.queueCountText}>
+          {sorted.length} / {items.filter((i) => !i.deferred).length}
+        </span>
+      </div>
 
-      <div style={rStyles.cardStackArea}>
-        {allDone ? (
-          <motion.div
-            style={rStyles.stackEmpty}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-          >
-            <span style={rStyles.stackEmptyIcon}>✓</span>
-            <span style={rStyles.stackEmptyText}>
-              {sorted.length === 0 ? 'Nothing here yet.' : 'All reviewed'}
-            </span>
-            {sorted.length > 0 && (
-              <button style={rStyles.stackResetBtn} onClick={() => setTopIndex(0)}>
-                Start over
-              </button>
-            )}
-          </motion.div>
-        ) : (
-          <div style={{ position: 'relative', width: '100%', height: 140 }}>
-            {[...visibleSlice].reverse().map((item, rIdx) => {
-              const stackIdx = visibleSlice.length - 1 - rIdx
-              const { level } = getUrgencyInfo(item.deadline)
-              const isUrgent = ['overdue', 'critical', 'high'].includes(level)
-              return (
-                <SwipeableKeywordCard
-                  key={item.id}
-                  item={item}
-                  stackIdx={stackIdx}
-                  isTop={stackIdx === 0}
-                  isUrgent={isUrgent}
-                  onComplete={() => { completeItem(item.id); advance() }}
-                  onSnooze={() => { snooze(item.id); advance() }}
-                />
-              )
-            })}
-          </div>
-        )}
+      <div style={rStyles.queueList}>
+        <AnimatePresence>
+          {sorted.length === 0 ? (
+            <motion.div
+              key="empty"
+              style={rStyles.queueEmpty}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              <span style={rStyles.queueEmptyText}>
+                {filter === 'done' ? 'Nothing completed yet.' : 'All clear!'}
+              </span>
+            </motion.div>
+          ) : (
+            sorted.map((item) => (
+              <QueueItem
+                key={item.id}
+                item={item}
+                onComplete={() => completeItem(item.id)}
+                onDefer={() => snooze(item.id)}
+                onRestore={() => restoreItem(item.id)}
+              />
+            ))
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )
@@ -930,7 +992,7 @@ export default function MindmapPage() {
       {/* ── Right column ── */}
       <div style={rStyles.rightCol}>
         <Dashboard items={items} />
-        <SwipeableCardStack items={items} />
+        <QueueCardList items={items} />
       </div>
     </div>
   )
@@ -1201,21 +1263,23 @@ const zcStyles = {
 // ─── Detail popup styles ──────────────────────────────────────────────────────
 const dpStyles = {
   card: {
-    background: 'rgba(8,16,48,0.88)',
-    backdropFilter: 'blur(36px)',
-    WebkitBackdropFilter: 'blur(36px)',
-    border: '1px solid rgba(255,255,255,0.10)',
-    borderRadius: 18,
-    boxShadow: '0 12px 40px rgba(0,0,0,0.50)',
-    padding: '14px 16px 16px',
+    background: 'rgba(6,12,42,0.92)',
+    backdropFilter: 'blur(40px)',
+    WebkitBackdropFilter: 'blur(40px)',
+    border: '1px solid rgba(255,255,255,0.11)',
+    borderRadius: 20,
+    boxShadow: '0 16px 48px rgba(0,0,0,0.60)',
+    padding: '16px 18px 18px',
     position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
   },
   header: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-    marginBottom: 10,
   },
   headerLeft: {
     display: 'flex',
@@ -1229,40 +1293,38 @@ const dpStyles = {
     height: 7,
     borderRadius: '50%',
     background: '#C0FE37',
-    boxShadow: '0 0 6px rgba(192,254,55,0.7)',
+    boxShadow: '0 0 8px rgba(192,254,55,0.8)',
     flexShrink: 0,
   },
   keyword: {
     fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: 800,
-    letterSpacing: '-0.01em',
+    letterSpacing: '-0.02em',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
   closeBtn: {
+    alignItems: 'center',
     background: 'rgba(255,255,255,0.08)',
     border: 'none',
     borderRadius: 9999,
     color: 'rgba(255,255,255,0.45)',
     cursor: 'pointer',
-    fontFamily: "'Rethink Sans', sans-serif",
+    display: 'flex',
     fontSize: 14,
     fontWeight: 500,
-    height: 22,
-    lineHeight: 1,
-    width: 22,
-    display: 'flex',
-    alignItems: 'center',
+    height: 24,
     justifyContent: 'center',
+    lineHeight: 1,
+    width: 24,
     flexShrink: 0,
   },
   subRow: {
     display: 'flex',
     flexWrap: 'wrap',
     gap: 5,
-    marginBottom: 10,
   },
   subChip: {
     background: 'rgba(255,255,255,0.08)',
@@ -1274,6 +1336,67 @@ const dpStyles = {
     fontWeight: 500,
     padding: '3px 10px',
     display: 'inline-block',
+  },
+  deadlineBlock: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: 14,
+    padding: '12px 14px',
+  },
+  deadlineRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+  },
+  deadlineStat: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 3,
+    flex: 1,
+  },
+  deadlineStatLabel: {
+    color: 'rgba(255,255,255,0.30)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+  },
+  deadlineStatVal: {
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 20,
+    fontWeight: 700,
+    letterSpacing: '-0.03em',
+    lineHeight: 1,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  deadlineStatDate: {
+    color: 'rgba(255,255,255,0.80)',
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 14,
+    fontWeight: 600,
+    letterSpacing: '-0.01em',
+    lineHeight: 1,
+  },
+  deadlineDivider: {
+    width: 1,
+    height: 32,
+    background: 'rgba(255,255,255,0.10)',
+    flexShrink: 0,
+  },
+  urgencyPill: {
+    alignSelf: 'flex-start',
+    border: '1px solid',
+    borderRadius: 9999,
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    padding: '3px 10px',
+    textTransform: 'uppercase',
   },
   metaRow: {
     display: 'flex',
@@ -1290,17 +1413,30 @@ const dpStyles = {
     padding: '3px 9px',
     display: 'inline-block',
   },
-  // Small downward triangle caret
+  deleteBtn: {
+    background: 'rgba(255,70,70,0.08)',
+    border: '1px solid rgba(255,70,70,0.18)',
+    borderRadius: 9999,
+    color: 'rgba(255,100,100,0.75)',
+    cursor: 'pointer',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 11,
+    fontWeight: 700,
+    padding: '6px 16px',
+    alignSelf: 'center',
+    transition: 'all 0.18s',
+    letterSpacing: '0.02em',
+  },
   arrow: {
     position: 'absolute',
-    bottom: -7,
+    bottom: -8,
     left: '50%',
     transform: 'translateX(-50%)',
     width: 0,
     height: 0,
-    borderLeft: '7px solid transparent',
-    borderRight: '7px solid transparent',
-    borderTop: '7px solid rgba(8,16,48,0.88)',
+    borderLeft: '8px solid transparent',
+    borderRight: '8px solid transparent',
+    borderTop: '8px solid rgba(6,12,42,0.92)',
   },
 }
 
@@ -1420,15 +1556,15 @@ const rStyles = {
     fontFamily: "'Rethink Sans', sans-serif",
   },
 
-  // Swipeable card stack
+  // Queue list
   listPanel: {
     flex: 1,
     minHeight: 0,
     borderRadius: 20,
-    background: 'rgba(50,65,120,0.16)',
+    background: 'rgba(30,45,100,0.22)',
     backdropFilter: 'blur(36px)',
     WebkitBackdropFilter: 'blur(36px)',
-    border: '1px solid rgba(255,255,255,0.07)',
+    border: '1px solid rgba(255,255,255,0.08)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -1437,10 +1573,10 @@ const rStyles = {
     alignItems: 'center',
     display: 'flex',
     justifyContent: 'space-between',
-    padding: '16px 16px 8px',
+    padding: '14px 14px 6px',
     flexShrink: 0,
   },
-  filterPills: { display: 'flex', gap: 4 },
+  filterPills: { display: 'flex', gap: 3 },
   filterBtn: {
     background: 'transparent',
     border: '1px solid rgba(255,255,255,0.08)',
@@ -1455,143 +1591,151 @@ const rStyles = {
   },
   filterBtnActive: {
     background: 'rgba(192,254,55,0.10)',
-    border: '1px solid rgba(192,254,55,0.25)',
+    border: '1px solid rgba(192,254,55,0.28)',
     color: '#C0FE37',
   },
-  stackProgress: {
-    padding: '0 16px 6px',
+  queueCountRow: {
+    padding: '0 14px 6px',
     flexShrink: 0,
   },
-  stackProgressText: {
-    color: 'rgba(255,255,255,0.20)',
-    fontFamily: "'Rethink Sans', sans-serif",
+  queueCountText: {
+    color: 'rgba(255,255,255,0.18)',
+    fontFamily: "'Space Grotesk', sans-serif",
     fontSize: 10,
     fontWeight: 600,
+    letterSpacing: '0.02em',
   },
-  cardStackArea: {
+  queueList: {
     flex: 1,
-    padding: '4px 14px 16px',
+    overflowY: 'auto',
+    padding: '0 10px 12px',
     display: 'flex',
     flexDirection: 'column',
-    overflow: 'hidden',
+    gap: 5,
   },
-  stackCard: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    background: 'rgba(255,255,255,0.07)',
-    backdropFilter: 'blur(28px)',
-    WebkitBackdropFilter: 'blur(28px)',
-    border: '1px solid rgba(255,255,255,0.09)',
-    borderRadius: 16,
-    padding: '14px 14px 10px',
-    userSelect: 'none',
-    touchAction: 'none',
+  queueItem: {
+    alignItems: 'center',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: 14,
     display: 'flex',
-    flexDirection: 'column',
     gap: 8,
-    transformOrigin: 'center bottom',
+    padding: '9px 10px 9px 6px',
+    position: 'relative',
+    userSelect: 'none',
+    transition: 'background 0.15s',
   },
-  stackCardInner: {
+  queueHandle: {
+    alignItems: 'center',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 8,
+    color: 'rgba(255,255,255,0.22)',
+    cursor: 'grab',
     display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-  },
-  stackKw: {
-    fontFamily: "'Rethink Sans', sans-serif",
+    flexShrink: 0,
     fontSize: 14,
+    height: 28,
+    justifyContent: 'center',
+    padding: 0,
+    transition: 'color 0.15s',
+    width: 22,
+  },
+  queueHandleDots: {
+    fontSize: 13,
+    lineHeight: 1,
+    letterSpacing: '-1px',
+  },
+  queueContent: {
+    display: 'flex',
+    flex: 1,
+    flexDirection: 'column',
+    gap: 2,
+    minWidth: 0,
+  },
+  queueDate: {
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 10,
+    fontWeight: 500,
+    letterSpacing: '0.01em',
+  },
+  queueKw: {
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 13,
     fontWeight: 700,
     letterSpacing: '-0.01em',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
-  stackMeta: {
+  checkCircle: {
+    alignItems: 'center',
+    border: '2px solid',
+    borderRadius: 9999,
+    cursor: 'pointer',
+    display: 'flex',
+    flexShrink: 0,
+    height: 22,
+    justifyContent: 'center',
+    transition: 'all 0.18s',
+    width: 22,
+    background: 'transparent',
+  },
+  deferMenu: {
+    alignItems: 'center',
+    background: 'rgba(10,18,55,0.92)',
+    backdropFilter: 'blur(24px)',
+    WebkitBackdropFilter: 'blur(24px)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 12,
+    boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
     display: 'flex',
     gap: 6,
-    alignItems: 'center',
+    left: 0,
+    padding: '6px 8px',
+    position: 'absolute',
+    top: 'calc(100% + 5px)',
+    zIndex: 30,
   },
-  stackDl: {
-    color: 'rgba(255,255,255,0.38)',
+  deferMenuBtn: {
+    background: 'rgba(255,180,50,0.12)',
+    border: '1px solid rgba(255,180,50,0.22)',
+    borderRadius: 9999,
+    color: 'rgba(255,190,60,0.90)',
+    cursor: 'pointer',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 11,
-  },
-  stackTypeBadge: {
-    background: 'rgba(136,174,219,0.12)',
-    border: '1px solid rgba(136,174,219,0.16)',
-    borderRadius: 9999,
-    color: '#88AEDB',
-    fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 9,
-    fontWeight: 600,
-    padding: '2px 6px',
-  },
-  stackSwipeHints: {
-    display: 'flex',
-    justifyContent: 'space-between',
-  },
-  stackHint: {
-    color: 'rgba(255,255,255,0.16)',
-    fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 9,
-    fontWeight: 600,
-    letterSpacing: '0.01em',
-  },
-  swipeBadge: {
-    borderRadius: 9999,
-    fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 10,
-    fontWeight: 800,
-    letterSpacing: '0.02em',
-    padding: '3px 8px',
-    position: 'absolute',
-    top: 10,
-  },
-  swipeBadgeLeft: {
-    background: 'rgba(255,180,50,0.15)',
-    border: '1px solid rgba(255,180,50,0.25)',
-    color: 'rgba(255,190,60,0.90)',
-    left: 10,
-  },
-  swipeBadgeRight: {
-    background: 'rgba(192,254,55,0.12)',
-    border: '1px solid rgba(192,254,55,0.25)',
-    color: '#C0FE37',
-    right: 10,
-  },
-  stackEmpty: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: '100%',
-    padding: '24px 0',
-  },
-  stackEmptyIcon: {
-    color: '#C0FE37',
-    fontSize: 22,
     fontWeight: 700,
+    padding: '4px 12px',
+    transition: 'all 0.15s',
+    whiteSpace: 'nowrap',
   },
-  stackEmptyText: {
-    color: 'rgba(255,255,255,0.28)',
+  deferMenuClose: {
+    alignItems: 'center',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 9999,
+    color: 'rgba(255,255,255,0.35)',
+    cursor: 'pointer',
+    display: 'flex',
+    fontSize: 10,
+    fontWeight: 700,
+    height: 22,
+    justifyContent: 'center',
+    width: 22,
+  },
+  queueEmpty: {
+    alignItems: 'center',
+    display: 'flex',
+    height: '100%',
+    justifyContent: 'center',
+    padding: '28px 0',
+  },
+  queueEmptyText: {
+    color: 'rgba(255,255,255,0.25)',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 12,
     fontWeight: 500,
     textAlign: 'center',
-  },
-  stackResetBtn: {
-    background: 'transparent',
-    border: '1px solid rgba(255,255,255,0.10)',
-    borderRadius: 9999,
-    color: 'rgba(255,255,255,0.32)',
-    cursor: 'pointer',
-    fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 11,
-    fontWeight: 600,
-    marginTop: 4,
-    padding: '5px 14px',
-    transition: 'all 0.15s',
   },
 }
