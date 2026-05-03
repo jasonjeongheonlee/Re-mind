@@ -148,6 +148,26 @@ function ChunkBackground({ items }) {
           })}
         </g>
       ))}
+
+      {/* Second pass: subtle fill so no gap appears between bubble edge and stroke border */}
+      {entries.map(([chunkId, members]) => (
+        <g key={`fill-${chunkId}`} filter="url(#chunk-goo)" opacity={0.07}>
+          {members.map((item) => {
+            const { cx, cy, rx, ry } = bubbleMetrics(item)
+            return (
+              <rect
+                key={item.id}
+                x={cx - rx - PAD}
+                y={cy - ry - PAD}
+                width={(rx + PAD) * 2}
+                height={(ry + PAD) * 2}
+                rx={ry + PAD}
+                fill="white"
+              />
+            )
+          })}
+        </g>
+      ))}
     </svg>
   )
 }
@@ -169,23 +189,18 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
   const padH = Math.round(16 * bStyle.scale)
 
   const checkProximity = useCallback((id, newPos) => {
-    const GROUP_GAP = 8  // group when bounding-box gap < 8px
-    const draggedItem = allItems.find((i) => i.id === id)
-    if (!draggedItem) return
-    const { w: dW, h: dH } = getBubbleSize(draggedItem)
+    const THRESHOLD = 110
     const active = allItems.filter((i) => !i.completed && !i.deferred && i.id !== id)
-    let closestGroup = null, closestGap = Infinity
+    let closest = null, closestDist = Infinity
     active.forEach((other) => {
-      const { w: oW, h: oH } = getBubbleSize(other)
-      const ox = other.position.x, oy = other.position.y
-      const gapX = Math.max(0, Math.max(newPos.x, ox) - Math.min(newPos.x + dW, ox + oW))
-      const gapY = Math.max(0, Math.max(newPos.y, oy) - Math.min(newPos.y + dH, oy + oH))
-      const gap = gapX + gapY
-      if (gap < GROUP_GAP && gap < closestGap) { closestGap = gap; closestGroup = other }
+      const dx = newPos.x - other.position.x
+      const dy = newPos.y - other.position.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < THRESHOLD && dist < closestDist) { closestDist = dist; closest = other }
     })
-    if (closestGroup) {
-      const chunkId = closestGroup.chunkId || `chunk-${closestGroup.id}`
-      updateChunk(closestGroup.id, chunkId)
+    if (closest) {
+      const chunkId = closest.chunkId || `chunk-${closest.id}`
+      updateChunk(closest.id, chunkId)
       updateChunk(id, chunkId)
     } else {
       updateChunk(id, null)
@@ -221,12 +236,7 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
         moved = true
         dragging.current = true
       }
-      if (moved) {
-        // Prevent overlapping other bubbles in real time
-        const proposed = { x: origX + dx, y: origY + dy }
-        const resolved = resolveOverlap(item, proposed, allItems)
-        setDragDelta({ x: resolved.x - origX, y: resolved.y - origY })
-      }
+      if (moved) setDragDelta({ x: dx, y: dy })
     }
 
     const onUp = (ev) => {
@@ -235,10 +245,7 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
       if (moved) {
         const dx = (ev.clientX - startX) / scale
         const dy = (ev.clientY - startY) / scale
-        // Resolve overlap, then snap to touch if within SNAP_GAP
-        let newPos = resolveOverlap(item, { x: origX + dx, y: origY + dy }, allItems)
-        newPos = snapIfClose(item, newPos, allItems)
-        newPos = resolveOverlap(item, newPos, allItems)  // re-check after snap
+        const newPos = { x: origX + dx, y: origY + dy }
         updatePosition(item.id, newPos)
         checkProximity(item.id, newPos)
       }
@@ -272,8 +279,7 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
           color: bStyle.color,
           fontSize,
           padding: `${padV}px ${padH}px`,
-          opacity: bStyle.opacity,
-          backdropFilter: isUrgent ? 'none' : 'blur(22px)',
+          backdropFilter: isUrgent ? 'none' : 'blur(28px)',
           WebkitBackdropFilter: isUrgent ? 'none' : 'blur(22px)',
           border: isUrgent ? 'none' : '1px solid rgba(255,255,255,0.18)',
           boxShadow: isDraggingNow
