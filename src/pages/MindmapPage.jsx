@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion'
 import { useAppStore } from '../store/useAppStore'
 import { getUrgencyInfo, getBubbleStyle } from '../utils/urgency'
 
@@ -8,11 +8,22 @@ const MAX_SCALE = 4.0
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const URGENCY_ORDER = { overdue: 0, critical: 1, high: 2, medium: 3, low: 4, none: 5 }
 
-// ─── ZoomControls ─────────────────────────────────────────────────────────────
+function getChunkColor(chunkId) {
+  let hash = 0
+  for (let i = 0; i < chunkId.length; i++) {
+    hash = ((hash << 5) - hash) + chunkId.charCodeAt(i)
+    hash |= 0
+  }
+  const hue = Math.abs(hash) % 360
+  return `hsl(${hue}, 55%, 65%)`
+}
+
+// ─── ZoomControls (minimal Apple-style) ───────────────────────────────────────
 function ZoomControls({ scale, onZoom }) {
   const pct = Math.round(scale * 100)
   return (
-    <div style={zcStyles.panel} onPointerDown={(e) => e.stopPropagation()}>
+    <div style={zcStyles.wrap} onPointerDown={(e) => e.stopPropagation()}>
+      <span style={zcStyles.label}>{pct}%</span>
       <input
         type="range"
         min={Math.round(MIN_SCALE * 100)}
@@ -22,15 +33,12 @@ function ZoomControls({ scale, onZoom }) {
         onChange={(e) => onZoom(Number(e.target.value) / 100)}
         style={zcStyles.slider}
       />
-      <button style={zcStyles.btn} onClick={() => onZoom(scale * 1.25)}>+</button>
-      <span style={zcStyles.label}>{pct}%</span>
-      <button style={zcStyles.btn} onClick={() => onZoom(scale / 1.25)}>−</button>
     </div>
   )
 }
 
 // ─── BubbleNode ───────────────────────────────────────────────────────────────
-function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, onSelect, scale }) {
+function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, scale }) {
   const { updatePosition, updateChunk } = useAppStore()
   const allItems = useAppStore((s) => s.items)
   const [dragDelta, setDragDelta] = useState({ x: 0, y: 0 })
@@ -42,6 +50,7 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
   const fontSize = Math.round(13 * bStyle.scale * 0.95)
   const padV = Math.round(8 * bStyle.scale)
   const padH = Math.round(16 * bStyle.scale)
+  const cColor = item.chunkId ? getChunkColor(item.chunkId) : null
 
   const checkProximity = useCallback((id, newPos) => {
     const THRESHOLD = 110
@@ -131,10 +140,14 @@ function BubbleNode({ item, isDraggingAny, onDragStart, onDragEnd, isSelected, o
             ? `0 20px 60px rgba(0,0,0,0.38), ${isUrgent ? '0 0 28px rgba(192,254,55,0.55)' : '0 0 0 1px rgba(255,255,255,0.25)'}`
             : isUrgent
             ? '0 0 28px rgba(192,254,55,0.55)'
-            : item.chunkId
-            ? '0 0 0 2px rgba(255,255,255,0.25), 0 4px 20px rgba(0,0,0,0.25)'
+            : cColor
+            ? `0 0 14px ${cColor}55, 0 4px 20px rgba(0,0,0,0.25)`
             : '0 2px 12px rgba(0,0,0,0.22)',
-          outline: isSelected ? '2px solid rgba(255,255,255,0.75)' : '2px solid transparent',
+          outline: isSelected
+            ? '2px solid rgba(255,255,255,0.75)'
+            : cColor
+            ? `2px solid ${cColor}`
+            : '2px solid transparent',
           outlineOffset: 4,
           cursor: isDraggingNow ? 'grabbing' : 'grab',
           position: 'relative',
@@ -212,202 +225,219 @@ function DeadlineToast({ onSelect, onSkip }) {
   )
 }
 
-// ─── ChunkBackground ──────────────────────────────────────────────────────────
-function ChunkBackground({ items }) {
-  const active = items.filter((i) => !i.completed && !i.deferred && i.chunkId)
-  const chunks = {}
-  active.forEach((item) => {
-    if (!chunks[item.chunkId]) chunks[item.chunkId] = []
-    chunks[item.chunkId].push(item)
-  })
-  return (
-    <>
-      {Object.entries(chunks).map(([chunkId, members]) => {
-        if (members.length < 2) return null
-        const xs = members.map((m) => m.position.x)
-        const ys = members.map((m) => m.position.y)
-        const pad = 60
-        const x = Math.min(...xs) - pad
-        const y = Math.min(...ys) - pad
-        const w = Math.max(...xs) - Math.min(...xs) + pad * 2 + 120
-        const h = Math.max(...ys) - Math.min(...ys) + pad * 2 + 50
-        return (
-          <div key={chunkId} style={{
-            position: 'absolute', left: x, top: y, width: w, height: h,
-            borderRadius: 36,
-            background: 'rgba(255,255,255,0.04)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            pointerEvents: 'none', zIndex: 0,
-          }} />
-        )
-      })}
-    </>
-  )
-}
-
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard({ items }) {
-  const active   = items.filter((i) => !i.completed && !i.deferred)
-  const overdue  = active.filter((i) => ['overdue', 'critical'].includes(getUrgencyInfo(i.deadline).level))
+  const active    = items.filter((i) => !i.completed && !i.deferred)
+  const overdue   = active.filter((i) => ['overdue', 'critical'].includes(getUrgencyInfo(i.deadline).level))
   const completed = items.filter((i) => i.completed)
-  const deferred  = items.filter((i) => i.deferred && !i.completed)
 
-  const stats = [
-    { label: 'Active',   value: active.length,     color: '#C0FE37' },
-    { label: 'Overdue',  value: overdue.length,    color: '#FF7070' },
-    { label: 'Deferred', value: deferred.length,   color: 'rgba(255,200,80,0.9)' },
-    { label: 'Done',     value: completed.length,  color: 'rgba(255,255,255,0.40)' },
-  ]
+  const onTimePercent = active.length > 0
+    ? Math.round(((active.length - overdue.length) / active.length) * 100)
+    : 100
+
+  const dotItems = items.slice(0, 40)
 
   return (
     <div style={rStyles.dashboard}>
-      <p style={rStyles.panelTitle}>Overview</p>
-      <div style={rStyles.statsGrid}>
-        {stats.map((s) => (
-          <div key={s.label} style={rStyles.statCell}>
-            <span style={{ ...rStyles.statNum, color: s.color }}>{s.value}</span>
-            <span style={rStyles.statLabel}>{s.label}</span>
+      <div style={rStyles.dashTop}>
+        <div style={rStyles.dashLeft}>
+          <span style={rStyles.dashBigNum}>{active.length}</span>
+          <span style={rStyles.dashBigLabel}>active</span>
+        </div>
+        <div style={rStyles.dashRight}>
+          <div style={rStyles.dashSmallStat}>
+            <span style={{ ...rStyles.dashSmallNum, color: '#FF7070' }}>{overdue.length}</span>
+            <span style={rStyles.dashSmallLabel}>overdue</span>
           </div>
-        ))}
+          <div style={rStyles.dashSmallStat}>
+            <span style={{ ...rStyles.dashSmallNum, color: 'rgba(255,255,255,0.45)' }}>{completed.length}</span>
+            <span style={rStyles.dashSmallLabel}>done</span>
+          </div>
+        </div>
+      </div>
+
+      {dotItems.length > 0 && (
+        <div style={rStyles.dotMatrix}>
+          {dotItems.map((item) => {
+            const { level } = getUrgencyInfo(item.deadline)
+            const bg = item.completed
+              ? 'rgba(255,255,255,0.14)'
+              : level === 'overdue' || level === 'critical' ? '#FF7070'
+              : level === 'high' ? '#C0FE37'
+              : level === 'medium' ? 'rgba(255,255,255,0.55)'
+              : 'rgba(255,255,255,0.20)'
+            return <div key={item.id} style={{ ...rStyles.dot, background: bg }} />
+          })}
+        </div>
+      )}
+
+      <div style={rStyles.percentRow}>
+        <span style={rStyles.percentNum}>{onTimePercent}%</span>
+        <span style={rStyles.percentLabel}>on time</span>
       </div>
     </div>
   )
 }
 
-// ─── KeywordRow ───────────────────────────────────────────────────────────────
-function KeywordRow({ item, onComplete, onDefer, onDelete, onRestore }) {
-  const { level } = getUrgencyInfo(item.deadline)
-  const isArchived = item.completed || item.deferred
-  const dotColors = {
-    overdue: '#C0FE37', critical: '#C0FE37', high: '#C0FE37',
-    medium: 'rgba(255,255,255,0.60)', low: 'rgba(255,255,255,0.30)', none: 'rgba(255,255,255,0.18)',
+// ─── SwipeableKeywordCard ─────────────────────────────────────────────────────
+function SwipeableKeywordCard({ item, stackIdx, isTop, isUrgent, onComplete, onSnooze }) {
+  const x = useMotionValue(0)
+  const rotate = useTransform(x, [-120, 120], [-8, 8])
+  const completeOpacity = useTransform(x, [20, 70], [0, 1])
+  const snoozeOpacity   = useTransform(x, [-70, -20], [1, 0])
+
+  const handleDragEnd = (_, info) => {
+    if (info.offset.x > 80)       onComplete()
+    else if (info.offset.x < -80) onSnooze()
+  }
+
+  const deadline = item.deadline
+    ? new Date(item.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null
+
+  if (!isTop) {
+    return (
+      <div style={{
+        ...rStyles.stackCard,
+        transform: `translateY(${stackIdx * 5}px) scale(${1 - stackIdx * 0.04})`,
+        zIndex: 10 - stackIdx,
+        opacity: 1 - stackIdx * 0.25,
+        pointerEvents: 'none',
+      }} />
+    )
   }
 
   return (
-    <div style={rStyles.kwRow}>
-      <div style={{ ...rStyles.urgencyDot, background: dotColors[level] || 'rgba(255,255,255,0.18)' }} />
-      <div style={rStyles.kwContent}>
-        <span style={{ ...rStyles.kwName, ...(isArchived ? rStyles.kwArchived : {}) }}>
+    <motion.div
+      drag="x"
+      dragMomentum={false}
+      dragElastic={0.12}
+      style={{ x, rotate, ...rStyles.stackCard, zIndex: 20, cursor: 'grab' }}
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'spring', damping: 22, stiffness: 300 }}
+      onDragEnd={handleDragEnd}
+    >
+      <motion.span style={{ ...rStyles.swipeBadge, ...rStyles.swipeBadgeLeft,  opacity: snoozeOpacity }}>+1d</motion.span>
+      <motion.span style={{ ...rStyles.swipeBadge, ...rStyles.swipeBadgeRight, opacity: completeOpacity }}>✓</motion.span>
+
+      <div style={rStyles.stackCardInner}>
+        <span style={{ ...rStyles.stackKw, color: isUrgent ? '#C0FE37' : 'rgba(255,255,255,0.90)' }}>
           {item.mainKeyword}
         </span>
-        <span style={rStyles.kwMeta}>
-          {isArchived
-            ? (item.completed ? 'Done' : 'Deferred')
-            : item.deadline
-            ? new Date(item.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-            : item.type === 'idea' ? 'Idea' : ''
-          }
-        </span>
+        <div style={rStyles.stackMeta}>
+          {deadline && <span style={rStyles.stackDl}>{deadline}</span>}
+          {item.type === 'idea' && <span style={rStyles.stackTypeBadge}>Idea</span>}
+        </div>
       </div>
-      <div style={rStyles.kwActions}>
-        {isArchived ? (
-          <>
-            <button style={rStyles.kwBtn} onClick={onRestore} title="Restore">↺</button>
-            <button style={{ ...rStyles.kwBtn, ...rStyles.kwBtnDel }} onClick={onDelete} title="Delete">×</button>
-          </>
-        ) : (
-          <>
-            <button style={rStyles.kwBtn} onClick={onComplete} title="Mark done">✓</button>
-            <button style={rStyles.kwBtn} onClick={onDefer} title="Defer 1 day">›</button>
-            <button style={{ ...rStyles.kwBtn, ...rStyles.kwBtnDel }} onClick={onDelete} title="Delete">×</button>
-          </>
-        )}
+
+      <div style={rStyles.stackSwipeHints}>
+        <span style={rStyles.stackHint}>← snooze</span>
+        <span style={rStyles.stackHint}>done →</span>
       </div>
-    </div>
+    </motion.div>
   )
 }
 
-// ─── KeywordsList ─────────────────────────────────────────────────────────────
-function KeywordsList({ items }) {
-  const [sort, setSort]     = useState('urgency')
-  const [filter, setFilter] = useState('all')
-  const { completeItem, deferItem, deleteItem, restoreItem } = useAppStore()
+// ─── SwipeableCardStack ───────────────────────────────────────────────────────
+function SwipeableCardStack({ items }) {
+  const { completeItem, updateItem } = useAppStore()
+  const [filter, setFilter]   = useState('active')
+  const [topIndex, setTopIndex] = useState(0)
 
-  const visible = useMemo(() => {
+  const sorted = useMemo(() => {
     let list = [...items]
-    if (filter === 'active')   list = list.filter((i) => !i.completed && !i.deferred)
-    else if (filter === 'done')     list = list.filter((i) => i.completed)
-    else if (filter === 'deferred') list = list.filter((i) => i.deferred && !i.completed)
-
-    if (sort === 'urgency') {
-      list.sort((a, b) => {
-        const ao = URGENCY_ORDER[getUrgencyInfo(a.deadline).level] ?? 5
-        const bo = URGENCY_ORDER[getUrgencyInfo(b.deadline).level] ?? 5
-        return ao - bo
-      })
-    } else if (sort === 'deadline') {
-      list.sort((a, b) => {
-        if (!a.deadline) return 1
-        if (!b.deadline) return -1
-        return new Date(a.deadline) - new Date(b.deadline)
-      })
-    } else if (sort === 'name') {
-      list.sort((a, b) => a.mainKeyword.localeCompare(b.mainKeyword))
-    } else if (sort === 'type') {
-      list.sort((a, b) => a.type.localeCompare(b.type))
-    }
+    if (filter === 'active') list = list.filter((i) => !i.completed && !i.deferred)
+    else if (filter === 'done') list = list.filter((i) => i.completed)
+    list.sort((a, b) => {
+      const ao = URGENCY_ORDER[getUrgencyInfo(a.deadline).level] ?? 5
+      const bo = URGENCY_ORDER[getUrgencyInfo(b.deadline).level] ?? 5
+      return ao - bo
+    })
     return list
-  }, [items, sort, filter])
+  }, [items, filter])
+
+  useEffect(() => { setTopIndex(0) }, [filter])
+
+  const snooze = useCallback((id) => {
+    const item = items.find((i) => i.id === id)
+    const base = item?.deadline ? new Date(item.deadline) : new Date()
+    base.setDate(base.getDate() + 1)
+    base.setHours(9, 0, 0, 0)
+    updateItem(id, { deadline: base.toISOString() })
+  }, [items, updateItem])
+
+  const advance = useCallback(() => setTopIndex((i) => i + 1), [])
+
+  const visibleSlice = sorted.slice(topIndex, topIndex + 3)
+  const remaining    = sorted.length - topIndex
+  const allDone      = remaining <= 0
 
   const FILTERS = [
-    { id: 'all', label: 'All' },
     { id: 'active', label: 'Active' },
-    { id: 'done', label: 'Done' },
-    { id: 'deferred', label: 'Deferred' },
-  ]
-
-  const SORTS = [
-    { id: 'urgency',  label: '!' },
-    { id: 'deadline', label: 'Date' },
-    { id: 'name',     label: 'A–Z' },
-    { id: 'type',     label: 'Type' },
+    { id: 'done',   label: 'Done'   },
+    { id: 'all',    label: 'All'    },
   ]
 
   return (
     <div style={rStyles.listPanel}>
       <div style={rStyles.listHeader}>
-        <span style={rStyles.panelTitle}>Keywords</span>
-        <div style={rStyles.sortBtns}>
-          {SORTS.map((s) => (
+        <span style={rStyles.panelTitle}>Queue</span>
+        <div style={rStyles.filterPills}>
+          {FILTERS.map((f) => (
             <button
-              key={s.id}
-              style={{ ...rStyles.sortBtn, ...(sort === s.id ? rStyles.sortBtnActive : {}) }}
-              onClick={() => setSort(s.id)}
+              key={f.id}
+              style={{ ...rStyles.filterBtn, ...(filter === f.id ? rStyles.filterBtnActive : {}) }}
+              onClick={() => { setFilter(f.id); setTopIndex(0) }}
             >
-              {s.label}
+              {f.label}
             </button>
           ))}
         </div>
       </div>
 
-      <div style={rStyles.filterRow}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            style={{ ...rStyles.filterBtn, ...(filter === f.id ? rStyles.filterBtnActive : {}) }}
-            onClick={() => setFilter(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      {!allDone && sorted.length > 0 && (
+        <div style={rStyles.stackProgress}>
+          <span style={rStyles.stackProgressText}>{topIndex} / {sorted.length}</span>
+        </div>
+      )}
 
-      <div style={rStyles.listScroll}>
-        {visible.length === 0 ? (
-          <div style={rStyles.listEmpty}>No items</div>
+      <div style={rStyles.cardStackArea}>
+        {allDone ? (
+          <motion.div
+            style={rStyles.stackEmpty}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+          >
+            <span style={rStyles.stackEmptyIcon}>✓</span>
+            <span style={rStyles.stackEmptyText}>
+              {sorted.length === 0 ? 'Nothing here yet.' : 'All reviewed'}
+            </span>
+            {sorted.length > 0 && (
+              <button style={rStyles.stackResetBtn} onClick={() => setTopIndex(0)}>
+                Start over
+              </button>
+            )}
+          </motion.div>
         ) : (
-          visible.map((item) => (
-            <KeywordRow
-              key={item.id}
-              item={item}
-              onComplete={() => completeItem(item.id)}
-              onDefer={() => deferItem(item.id)}
-              onDelete={() => deleteItem(item.id)}
-              onRestore={() => restoreItem(item.id)}
-            />
-          ))
+          <div style={{ position: 'relative', width: '100%', height: 140 }}>
+            {[...visibleSlice].reverse().map((item, rIdx) => {
+              const stackIdx = visibleSlice.length - 1 - rIdx
+              const { level } = getUrgencyInfo(item.deadline)
+              const isUrgent = ['overdue', 'critical', 'high'].includes(level)
+              return (
+                <SwipeableKeywordCard
+                  key={item.id}
+                  item={item}
+                  stackIdx={stackIdx}
+                  isTop={stackIdx === 0}
+                  isUrgent={isUrgent}
+                  onComplete={() => { completeItem(item.id); advance() }}
+                  onSnooze={() => { snooze(item.id); advance() }}
+                />
+              )
+            })}
+          </div>
         )}
       </div>
     </div>
@@ -472,7 +502,7 @@ export default function MindmapPage() {
     return () => el.removeEventListener('wheel', handleWheel)
   }, [])
 
-  // ── Zoom toward viewport center (buttons / slider) ──
+  // ── Zoom toward viewport center (slider) ──
   const zoomToCenter = useCallback((next) => {
     const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
     const cx = (containerRef.current?.clientWidth  ?? window.innerWidth)  / 2
@@ -568,15 +598,12 @@ export default function MindmapPage() {
     }
   }
 
-  const inputValue = step === 'sub' ? subInput : step === 'main' ? mainKeyword : ''
-  const setInputValue = (v) => {
-    if (step === 'sub') setSubInput(v)
-    else setMainKeyword(v)
-  }
-  const placeholder =
+  const inputValue    = step === 'sub' ? subInput : step === 'main' ? mainKeyword : ''
+  const setInputValue = (v) => { if (step === 'sub') setSubInput(v); else setMainKeyword(v) }
+  const placeholder   =
     step === 'idle' ? 'Add a keyword...' :
     step === 'main' ? 'Type your main keyword...' :
-                      'Add sub-keywords... (Enter twice to finish)'
+                      'Add sub-keywords… (Enter twice to finish)'
 
   return (
     <div style={mStyles.page}>
@@ -590,18 +617,16 @@ export default function MindmapPage() {
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
       >
-        {/* Zoom controls — top-left */}
+        {/* Zoom controls — top-left, minimal */}
         <ZoomControls scale={scale} onZoom={zoomToCenter} />
 
         {/* Canvas world */}
         <div style={{ ...mStyles.world, transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})` }}>
-          <ChunkBackground items={activeItems} />
           {activeItems.map((item) => (
             <BubbleNode
               key={item.id}
               item={item}
               scale={scale}
-              isDraggingAny={isDraggingBubble}
               isSelected={selectedId === item.id}
               onSelect={() => setSelectedId(item.id)}
               onDragStart={() => { isDraggingBubble.current = true; isPanning.current = false }}
@@ -620,7 +645,7 @@ export default function MindmapPage() {
           </div>
         )}
 
-        {/* Bottom input area */}
+        {/* Bottom input area — center-floating fixed width */}
         <div style={mStyles.bottomArea} onPointerDown={(e) => e.stopPropagation()}>
 
           {/* Sub-keyword chip preview */}
@@ -663,7 +688,6 @@ export default function MindmapPage() {
           {/* Input row: pill + standalone CTA */}
           <div style={mStyles.inputRow}>
             <div style={mStyles.inputPill} onClick={() => { if (step === 'idle') setStep('main') }}>
-              {/* Type toggle */}
               <div style={ipStyles.typePill}>
                 {['task', 'idea'].map((t) => (
                   <button
@@ -675,7 +699,6 @@ export default function MindmapPage() {
                   </button>
                 ))}
               </div>
-              {/* Text input */}
               <input
                 ref={inputRef}
                 className="kw-input"
@@ -688,7 +711,6 @@ export default function MindmapPage() {
               />
             </div>
 
-            {/* Standalone lime CTA */}
             <motion.button
               style={mStyles.ctaBtn}
               whileHover={{ scale: 1.08 }}
@@ -702,7 +724,7 @@ export default function MindmapPage() {
       {/* ── Right column ── */}
       <div style={rStyles.rightCol}>
         <Dashboard items={items} />
-        <KeywordsList items={items} />
+        <SwipeableCardStack items={items} />
       </div>
     </div>
   )
@@ -746,8 +768,9 @@ const mStyles = {
   bottomArea: {
     position: 'absolute',
     bottom: 20,
-    left: 20,
-    right: 20,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    width: 480,
     zIndex: 20,
     display: 'flex',
     flexDirection: 'column',
@@ -756,10 +779,11 @@ const mStyles = {
   inputRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   inputPill: {
     flex: 1,
+    height: 44,
     alignItems: 'center',
     background: 'rgba(255,255,255,0.12)',
     backdropFilter: 'blur(20px)',
@@ -770,6 +794,7 @@ const mStyles = {
     gap: 8,
     padding: '4px 4px 4px 8px',
     cursor: 'text',
+    boxSizing: 'border-box',
   },
   inputField: {
     background: 'transparent',
@@ -777,21 +802,20 @@ const mStyles = {
     color: 'rgba(255,255,255,0.85)',
     flex: 1,
     fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 400,
     outline: 'none',
-    padding: '6px 0',
     minWidth: 0,
   },
   ctaBtn: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: 9999,
     border: 'none',
     background: '#C0FE37',
     color: '#000',
     cursor: 'pointer',
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 800,
     display: 'flex',
     alignItems: 'center',
@@ -880,7 +904,6 @@ const ipStyles = {
     textUnderlineOffset: 3,
     textDecorationColor: 'rgba(255,255,255,0.12)',
   },
-
   bubbleRow: { display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' },
   mainBubble: {
     background: '#C0FE37',
@@ -914,7 +937,6 @@ const ipStyles = {
     fontFamily: "'Rethink Sans', sans-serif",
     lineHeight: 1, padding: '0 2px',
   },
-
   typePill: {
     background: 'rgba(255,255,255,0.10)',
     borderRadius: 9999,
@@ -939,9 +961,9 @@ const ipStyles = {
   typeBtnActive: { background: '#C0FE37', color: '#000' },
 }
 
-// ─── Zoom controls styles ─────────────────────────────────────────────────────
+// ─── Zoom controls styles (minimal floating) ──────────────────────────────────
 const zcStyles = {
-  panel: {
+  wrap: {
     position: 'absolute',
     top: 16,
     left: 16,
@@ -949,47 +971,24 @@ const zcStyles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: 4,
-    padding: '10px 8px',
-    background: 'rgba(255,255,255,0.09)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,0.14)',
-    borderRadius: 16,
+    gap: 6,
     userSelect: 'none',
   },
-  btn: {
-    width: 26,
-    height: 26,
-    borderRadius: 9999,
-    border: 'none',
-    background: 'rgba(255,255,255,0.12)',
-    color: 'rgba(255,255,255,0.80)',
-    fontSize: 14,
-    fontWeight: 700,
+  label: {
+    color: 'rgba(255,255,255,0.28)',
+    fontSize: 9,
+    fontWeight: 600,
     fontFamily: "'Rethink Sans', sans-serif",
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    lineHeight: 1,
+    letterSpacing: '0.01em',
   },
   slider: {
     writingMode: 'vertical-lr',
     direction: 'rtl',
     width: 4,
-    height: 80,
+    height: 72,
     cursor: 'pointer',
     accentColor: '#C0FE37',
-  },
-  label: {
-    color: 'rgba(255,255,255,0.45)',
-    fontSize: 10,
-    fontWeight: 700,
-    fontFamily: "'Rethink Sans', sans-serif",
-    letterSpacing: '-0.01em',
-    textAlign: 'center',
+    opacity: 0.6,
   },
 }
 
@@ -1010,11 +1009,95 @@ const rStyles = {
     backdropFilter: 'blur(20px)',
     WebkitBackdropFilter: 'blur(20px)',
     border: '1px solid rgba(255,255,255,0.16)',
-    padding: '18px 20px',
+    padding: '16px 18px',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: 16,
+    gap: 12,
+  },
+  dashTop: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  dashLeft: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 1,
+  },
+  dashBigNum: {
+    color: '#C0FE37',
+    fontFamily: "'Space Grotesk', 'Rethink Sans', sans-serif",
+    fontSize: 44,
+    fontWeight: 700,
+    letterSpacing: '-0.04em',
+    lineHeight: 1,
+  },
+  dashBigLabel: {
+    color: 'rgba(255,255,255,0.35)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+  },
+  dashRight: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    alignItems: 'flex-end',
+  },
+  dashSmallStat: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: 1,
+  },
+  dashSmallNum: {
+    fontFamily: "'Space Grotesk', 'Rethink Sans', sans-serif",
+    fontSize: 20,
+    fontWeight: 700,
+    letterSpacing: '-0.03em',
+    lineHeight: 1,
+  },
+  dashSmallLabel: {
+    color: 'rgba(255,255,255,0.28)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 9,
+    fontWeight: 600,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+  },
+  dotMatrix: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 9999,
+    flexShrink: 0,
+  },
+  percentRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 5,
+  },
+  percentNum: {
+    color: '#fff',
+    fontFamily: "'Space Grotesk', 'Rethink Sans', sans-serif",
+    fontSize: 15,
+    fontWeight: 700,
+    letterSpacing: '-0.02em',
+  },
+  percentLabel: {
+    color: 'rgba(255,255,255,0.35)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
   },
   panelTitle: {
     color: 'rgba(255,255,255,0.45)',
@@ -1022,25 +1105,10 @@ const rStyles = {
     fontWeight: 700,
     letterSpacing: '0.08em',
     textTransform: 'uppercase',
-  },
-  statsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' },
-  statCell: { display: 'flex', flexDirection: 'column', gap: 3 },
-  statNum: {
-    fontSize: 30,
-    fontWeight: 800,
-    letterSpacing: '-0.03em',
-    lineHeight: 1,
     fontFamily: "'Rethink Sans', sans-serif",
   },
-  statLabel: {
-    color: 'rgba(255,255,255,0.35)',
-    fontSize: 10,
-    fontWeight: 600,
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase',
-  },
 
-  // Keywords list
+  // Swipeable card stack (list panel)
   listPanel: {
     flex: 1,
     minHeight: 0,
@@ -1060,30 +1128,7 @@ const rStyles = {
     padding: '16px 16px 8px',
     flexShrink: 0,
   },
-  sortBtns: { display: 'flex', gap: 2 },
-  sortBtn: {
-    background: 'transparent',
-    border: 'none',
-    borderRadius: 9999,
-    color: 'rgba(255,255,255,0.30)',
-    cursor: 'pointer',
-    fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 10,
-    fontWeight: 600,
-    padding: '3px 7px',
-    transition: 'all 0.15s',
-  },
-  sortBtnActive: {
-    background: 'rgba(255,255,255,0.10)',
-    color: 'rgba(255,255,255,0.80)',
-  },
-  filterRow: {
-    display: 'flex',
-    gap: 4,
-    padding: '0 16px 10px',
-    flexShrink: 0,
-    flexWrap: 'wrap',
-  },
+  filterPills: { display: 'flex', gap: 4 },
   filterBtn: {
     background: 'transparent',
     border: '1px solid rgba(255,255,255,0.10)',
@@ -1101,75 +1146,140 @@ const rStyles = {
     border: '1px solid rgba(192,254,55,0.30)',
     color: '#C0FE37',
   },
-  listScroll: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '0 10px 16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
+  stackProgress: {
+    padding: '0 16px 6px',
+    flexShrink: 0,
   },
-  listEmpty: {
+  stackProgressText: {
     color: 'rgba(255,255,255,0.22)',
-    fontSize: 12,
-    padding: '24px 4px',
-    textAlign: 'center',
     fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 10,
+    fontWeight: 600,
   },
-  kwRow: {
-    alignItems: 'center',
-    borderRadius: 10,
-    display: 'flex',
-    gap: 8,
-    padding: '7px 8px',
-    transition: 'background 0.12s',
-  },
-  urgencyDot: { width: 6, height: 6, borderRadius: 9999, flexShrink: 0 },
-  kwContent: {
+  cardStackArea: {
     flex: 1,
+    padding: '4px 14px 16px',
     display: 'flex',
     flexDirection: 'column',
-    gap: 1,
-    minWidth: 0,
+    overflow: 'hidden',
   },
-  kwName: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 13,
-    fontWeight: 600,
+  stackCard: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    background: 'rgba(255,255,255,0.09)',
+    backdropFilter: 'blur(16px)',
+    WebkitBackdropFilter: 'blur(16px)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    borderRadius: 16,
+    padding: '14px 14px 10px',
+    userSelect: 'none',
+    touchAction: 'none',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    transformOrigin: 'center bottom',
+  },
+  stackCardInner: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+  },
+  stackKw: {
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 14,
+    fontWeight: 700,
     letterSpacing: '-0.01em',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    fontFamily: "'Rethink Sans', sans-serif",
   },
-  kwArchived: {
-    opacity: 0.38,
-    textDecoration: 'line-through',
-    textDecorationColor: 'rgba(255,255,255,0.25)',
-  },
-  kwMeta: {
-    color: 'rgba(255,255,255,0.30)',
-    fontSize: 10,
-    fontWeight: 500,
-    fontFamily: "'Rethink Sans', sans-serif",
-  },
-  kwActions: { display: 'flex', gap: 2, flexShrink: 0 },
-  kwBtn: {
-    alignItems: 'center',
-    background: 'rgba(255,255,255,0.07)',
-    border: 'none',
-    borderRadius: 9999,
-    color: 'rgba(255,255,255,0.50)',
-    cursor: 'pointer',
+  stackMeta: {
     display: 'flex',
+    gap: 6,
+    alignItems: 'center',
+  },
+  stackDl: {
+    color: 'rgba(255,255,255,0.38)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 11,
+  },
+  stackTypeBadge: {
+    background: 'rgba(136,174,219,0.15)',
+    border: '1px solid rgba(136,174,219,0.20)',
+    borderRadius: 9999,
+    color: '#88AEDB',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 9,
+    fontWeight: 600,
+    padding: '2px 6px',
+  },
+  stackSwipeHints: {
+    display: 'flex',
+    justifyContent: 'space-between',
+  },
+  stackHint: {
+    color: 'rgba(255,255,255,0.18)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 9,
+    fontWeight: 600,
+    letterSpacing: '0.01em',
+  },
+  swipeBadge: {
+    borderRadius: 9999,
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.02em',
+    padding: '3px 8px',
+    position: 'absolute',
+    top: 10,
+  },
+  swipeBadgeLeft: {
+    background: 'rgba(255,180,50,0.18)',
+    border: '1px solid rgba(255,180,50,0.30)',
+    color: 'rgba(255,190,60,0.90)',
+    left: 10,
+  },
+  swipeBadgeRight: {
+    background: 'rgba(192,254,55,0.15)',
+    border: '1px solid rgba(192,254,55,0.30)',
+    color: '#C0FE37',
+    right: 10,
+  },
+  stackEmpty: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: '100%',
+    padding: '24px 0',
+  },
+  stackEmptyIcon: {
+    color: '#C0FE37',
+    fontSize: 22,
+    fontWeight: 700,
+  },
+  stackEmptyText: {
+    color: 'rgba(255,255,255,0.30)',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 12,
-    fontWeight: 700,
-    height: 24,
-    justifyContent: 'center',
-    width: 24,
-    transition: 'all 0.12s',
-    lineHeight: 1,
+    fontWeight: 500,
+    textAlign: 'center',
   },
-  kwBtnDel: { color: 'rgba(255,100,100,0.55)' },
+  stackResetBtn: {
+    background: 'transparent',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 9999,
+    color: 'rgba(255,255,255,0.35)',
+    cursor: 'pointer',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 11,
+    fontWeight: 600,
+    marginTop: 4,
+    padding: '5px 14px',
+    transition: 'all 0.15s',
+  },
 }
