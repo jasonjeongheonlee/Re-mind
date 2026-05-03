@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion'
+import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import { useAppStore } from '../store/useAppStore'
 import { getUrgencyInfo, getBubbleStyle, getCountdown } from '../utils/urgency'
 
@@ -77,7 +77,8 @@ function bubbleMetrics(item) {
   const fontSize = Math.round(13 * bs.scale * 0.95)
   const padV = Math.round(8 * bs.scale)
   const padH = Math.round(16 * bs.scale)
-  const textW = item.mainKeyword.length * fontSize * 0.58
+  // 0.53 is more accurate for Rethink Sans Bold (was 0.58 which overestimated → asymmetric padding)
+  const textW = item.mainKeyword.length * fontSize * 0.53
   const halfW = textW / 2 + padH
   const halfH = fontSize / 2 + padV
   return {
@@ -143,19 +144,24 @@ function ChunkBackground({ items }) {
       </defs>
 
       {entries.map(([chunkId, members]) => (
-        // One layer, fill only — goo merges all pills into a single solid area.
-        // The natural edge of the merged shape is the group border (no stroke needed).
         <g key={chunkId} filter="url(#chunk-goo)" opacity={0.20}>
           {members.map((item) => {
-            const { cx, cy, rx, ry } = bubbleMetrics(item)
+            const { level } = getUrgencyInfo(item.deadline)
+            const bs = getBubbleStyle(level)
+            const fontSize = Math.round(13 * bs.scale * 0.95)
+            const padV = Math.round(8 * bs.scale)
+            const padH = Math.round(16 * bs.scale)
+            // Directly use position.x/y as left/top edge — left padding is always exact PAD
+            const bW = item.mainKeyword.length * fontSize * 0.53 + 2 * padH
+            const bH = fontSize + 2 * padV
             return (
               <rect
                 key={item.id}
-                x={cx - rx - PAD}
-                y={cy - ry - PAD}
-                width={(rx + PAD) * 2}
-                height={(ry + PAD) * 2}
-                rx={ry + PAD}
+                x={item.position.x - PAD}
+                y={item.position.y - PAD}
+                width={bW + 2 * PAD}
+                height={bH + 2 * PAD}
+                rx={bH / 2 + PAD}
                 fill="white"
               />
             )
@@ -183,14 +189,24 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
   const padH = Math.round(16 * bStyle.scale)
 
   const checkProximity = useCallback((id, newPos) => {
-    const THRESHOLD = 110
+    // Use edge-to-edge distance so bubbles only group when visually close
+    const draggedWithPos = { ...item, position: newPos }
+    const { w: dW, h: dH } = getBubbleSize(draggedWithPos)
+    // Trigger grouping when edges are within SNAP_GAP (same distance that triggers snap)
+    const EDGE_THRESHOLD = SNAP_GAP
+
     const active = allItems.filter((i) => !i.completed && !i.deferred && i.id !== id)
-    let closest = null, closestDist = Infinity
+    let closest = null, closestEdgeDist = Infinity
     active.forEach((other) => {
-      const dx = newPos.x - other.position.x
-      const dy = newPos.y - other.position.y
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      if (dist < THRESHOLD && dist < closestDist) { closestDist = dist; closest = other }
+      const { w: oW, h: oH } = getBubbleSize(other)
+      const ox = other.position.x, oy = other.position.y
+      const gapX = Math.max(0, Math.max(newPos.x, ox) - Math.min(newPos.x + dW, ox + oW))
+      const gapY = Math.max(0, Math.max(newPos.y, oy) - Math.min(newPos.y + dH, oy + oH))
+      const edgeDist = Math.sqrt(gapX * gapX + gapY * gapY)
+      if (edgeDist < EDGE_THRESHOLD && edgeDist < closestEdgeDist) {
+        closestEdgeDist = edgeDist
+        closest = other
+      }
     })
     if (closest) {
       const chunkId = closest.chunkId || `chunk-${closest.id}`
@@ -199,7 +215,7 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
     } else {
       updateChunk(id, null)
     }
-  }, [allItems, updateChunk])
+  }, [allItems, updateChunk, item])
 
   const handlePointerDown = useCallback((e) => {
     e.stopPropagation()
@@ -523,43 +539,48 @@ function Dashboard({ items }) {
 }
 
 // ─── QueueItem ────────────────────────────────────────────────────────────────
-function QueueItem({ item, onComplete, onDefer, onRestore }) {
+function QueueItem({ item, onComplete, onRestore }) {
+  const controls = useDragControls()
   const { level } = getUrgencyInfo(item.deadline)
   const isUrgent = ['overdue', 'critical', 'high'].includes(level)
-  const [showDeferMenu, setShowDeferMenu] = useState(false)
-  const longTimer = useRef(null)
 
   const deadline = item.deadline
     ? new Date(item.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : null
 
-  const handleHandlePressStart = () => {
-    longTimer.current = setTimeout(() => setShowDeferMenu(true), 500)
-  }
-  const handleHandlePressEnd = () => {
-    if (longTimer.current) { clearTimeout(longTimer.current); longTimer.current = null }
-  }
-
   return (
-    <motion.div
-      style={{ ...rStyles.queueItem, opacity: item.completed ? 0.6 : 1 }}
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: item.completed ? 0.6 : 1, y: 0 }}
-      exit={{ opacity: 0, x: 16, scale: 0.96 }}
-      transition={{ type: 'spring', damping: 24, stiffness: 340 }}
+    <Reorder.Item
+      as="div"
+      value={item}
+      dragListener={false}
+      dragControls={controls}
+      style={{ ...rStyles.queueItem, opacity: item.completed ? 0.55 : 1 }}
+      whileDrag={{
+        scale: 1.04,
+        boxShadow: '0 10px 32px rgba(0,0,0,0.55)',
+        background: 'rgba(255,255,255,0.11)',
+        zIndex: 30,
+        cursor: 'grabbing',
+      }}
+      transition={{ type: 'spring', damping: 26, stiffness: 360 }}
     >
-      {/* Left drag/defer handle */}
-      <button
-        style={rStyles.queueHandle}
-        onPointerDown={handleHandlePressStart}
-        onPointerUp={handleHandlePressEnd}
-        onPointerLeave={handleHandlePressEnd}
-        onClick={() => !item.completed && setShowDeferMenu((v) => !v)}
-        title="Click or hold to snooze"
+      {/* Drag handle — grab to reorder */}
+      <div
+        style={{
+          ...rStyles.queueHandle,
+          cursor: item.completed ? 'default' : 'grab',
+          opacity: item.completed ? 0.3 : 1,
+        }}
+        onPointerDown={(e) => {
+          if (!item.completed) {
+            e.preventDefault()
+            controls.start(e)
+          }
+        }}
+        title="Drag to reorder"
       >
         <span style={rStyles.queueHandleDots}>⠿</span>
-      </button>
+      </div>
 
       {/* Content */}
       <div style={rStyles.queueContent}>
@@ -573,7 +594,7 @@ function QueueItem({ item, onComplete, onDefer, onRestore }) {
         )}
         <span style={{
           ...rStyles.queueKw,
-          color: item.completed ? 'rgba(255,255,255,0.45)' : isUrgent ? '#C0FE37' : 'rgba(255,255,255,0.88)',
+          color: item.completed ? 'rgba(255,255,255,0.40)' : isUrgent ? '#C0FE37' : 'rgba(255,255,255,0.88)',
           textDecoration: item.completed ? 'line-through' : 'none',
         }}>
           {item.mainKeyword}
@@ -594,26 +615,7 @@ function QueueItem({ item, onComplete, onDefer, onRestore }) {
           <span style={{ color: '#000', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>✓</span>
         )}
       </button>
-
-      {/* Defer context menu */}
-      <AnimatePresence>
-        {showDeferMenu && !item.completed && (
-          <motion.div
-            style={rStyles.deferMenu}
-            initial={{ opacity: 0, scale: 0.88, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.88, y: -4 }}
-            transition={{ type: 'spring', damping: 22, stiffness: 380 }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <button style={rStyles.deferMenuBtn} onClick={() => { onDefer(); setShowDeferMenu(false) }}>
-              Snooze +1d
-            </button>
-            <button style={rStyles.deferMenuClose} onClick={() => setShowDeferMenu(false)}>✕</button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+    </Reorder.Item>
   )
 }
 
@@ -634,13 +636,54 @@ function QueueCardList({ items }) {
     return list
   }, [items, filter])
 
-  const snooze = useCallback((id) => {
-    const item = items.find((i) => i.id === id)
-    const base = item?.deadline ? new Date(item.deadline) : new Date()
-    base.setDate(base.getDate() + 1)
-    base.setHours(9, 0, 0, 0)
-    updateItem(id, { deadline: base.toISOString() })
-  }, [items, updateItem])
+  const [localOrder, setLocalOrder] = useState(sorted)
+  const localOrderRef = useRef(sorted)
+
+  // Sync when filter changes or item count changes (not on deadline changes from drag)
+  const syncKey = filter + '-' + sorted.length
+  const prevSyncKey = useRef(syncKey)
+  useEffect(() => {
+    if (prevSyncKey.current !== syncKey) {
+      prevSyncKey.current = syncKey
+      setLocalOrder(sorted)
+      localOrderRef.current = sorted
+    }
+  })
+
+  const handleReorder = useCallback((newOrder) => {
+    setLocalOrder(newOrder)
+    localOrderRef.current = newOrder
+  }, [])
+
+  // On drag end: set deadline to midpoint between neighbors in the new order
+  const handleDragEnd = useCallback((draggedItem) => {
+    const order = localOrderRef.current
+    const idx = order.findIndex((i) => i.id === draggedItem.id)
+    if (idx < 0) return
+    const prev = order[idx - 1]
+    const next = order[idx + 1]
+
+    let newDeadline = draggedItem.deadline
+
+    if (prev?.deadline && next?.deadline) {
+      newDeadline = new Date(
+        (new Date(prev.deadline).getTime() + new Date(next.deadline).getTime()) / 2
+      ).toISOString()
+    } else if (prev?.deadline && !next?.deadline) {
+      const d = new Date(prev.deadline)
+      d.setDate(d.getDate() + 1)
+      d.setHours(9, 0, 0, 0)
+      newDeadline = d.toISOString()
+    } else if (!prev?.deadline && next?.deadline) {
+      const d = new Date(next.deadline)
+      d.setTime(d.getTime() - 60 * 60 * 1000)
+      newDeadline = d.toISOString()
+    }
+
+    if (newDeadline !== draggedItem.deadline) {
+      updateItem(draggedItem.id, { deadline: newDeadline })
+    }
+  }, [updateItem])
 
   const FILTERS = [
     { id: 'active', label: 'Active' },
@@ -667,36 +710,35 @@ function QueueCardList({ items }) {
 
       <div style={rStyles.queueCountRow}>
         <span style={rStyles.queueCountText}>
-          {sorted.length} / {items.filter((i) => !i.deferred).length}
+          {localOrder.length} / {items.filter((i) => !i.deferred).length}
         </span>
       </div>
 
-      <div style={rStyles.queueList}>
-        <AnimatePresence>
-          {sorted.length === 0 ? (
-            <motion.div
-              key="empty"
-              style={rStyles.queueEmpty}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              <span style={rStyles.queueEmptyText}>
-                {filter === 'done' ? 'Nothing completed yet.' : 'All clear!'}
-              </span>
-            </motion.div>
-          ) : (
-            sorted.map((item) => (
-              <QueueItem
-                key={item.id}
-                item={item}
-                onComplete={() => completeItem(item.id)}
-                onDefer={() => snooze(item.id)}
-                onRestore={() => restoreItem(item.id)}
-              />
-            ))
-          )}
-        </AnimatePresence>
-      </div>
+      {localOrder.length === 0 ? (
+        <div style={{ ...rStyles.queueList, justifyContent: 'center', alignItems: 'center' }}>
+          <span style={rStyles.queueEmptyText}>
+            {filter === 'done' ? 'Nothing completed yet.' : 'All clear!'}
+          </span>
+        </div>
+      ) : (
+        <Reorder.Group
+          as="div"
+          axis="y"
+          values={localOrder}
+          onReorder={handleReorder}
+          style={rStyles.queueList}
+        >
+          {localOrder.map((item) => (
+            <QueueItem
+              key={item.id}
+              item={item}
+              onComplete={() => completeItem(item.id)}
+              onRestore={() => restoreItem(item.id)}
+              onDragEnd={() => handleDragEnd(item)}
+            />
+          ))}
+        </Reorder.Group>
+      )}
     </div>
   )
 }
@@ -1680,49 +1722,6 @@ const rStyles = {
     transition: 'all 0.18s',
     width: 22,
     background: 'transparent',
-  },
-  deferMenu: {
-    alignItems: 'center',
-    background: 'rgba(10,18,55,0.92)',
-    backdropFilter: 'blur(24px)',
-    WebkitBackdropFilter: 'blur(24px)',
-    border: '1px solid rgba(255,255,255,0.10)',
-    borderRadius: 12,
-    boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
-    display: 'flex',
-    gap: 6,
-    left: 0,
-    padding: '6px 8px',
-    position: 'absolute',
-    top: 'calc(100% + 5px)',
-    zIndex: 30,
-  },
-  deferMenuBtn: {
-    background: 'rgba(255,180,50,0.12)',
-    border: '1px solid rgba(255,180,50,0.22)',
-    borderRadius: 9999,
-    color: 'rgba(255,190,60,0.90)',
-    cursor: 'pointer',
-    fontFamily: "'Rethink Sans', sans-serif",
-    fontSize: 11,
-    fontWeight: 700,
-    padding: '4px 12px',
-    transition: 'all 0.15s',
-    whiteSpace: 'nowrap',
-  },
-  deferMenuClose: {
-    alignItems: 'center',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.10)',
-    borderRadius: 9999,
-    color: 'rgba(255,255,255,0.35)',
-    cursor: 'pointer',
-    display: 'flex',
-    fontSize: 10,
-    fontWeight: 700,
-    height: 22,
-    justifyContent: 'center',
-    width: 22,
   },
   queueEmpty: {
     alignItems: 'center',
