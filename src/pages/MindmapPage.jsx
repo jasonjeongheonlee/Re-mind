@@ -15,7 +15,25 @@ function getChunkColor(chunkId) {
     hash |= 0
   }
   const hue = Math.abs(hash) % 360
-  return `hsl(${hue}, 55%, 65%)`
+  return `hsl(${hue}, 60%, 68%)`
+}
+
+// Estimate bubble pill geometry in world coordinates
+function bubbleMetrics(item) {
+  const { level } = getUrgencyInfo(item.deadline)
+  const bs = getBubbleStyle(level)
+  const fontSize = Math.round(13 * bs.scale * 0.95)
+  const padV = Math.round(8 * bs.scale)
+  const padH = Math.round(16 * bs.scale)
+  const textW = item.mainKeyword.length * fontSize * 0.58
+  const halfW = textW / 2 + padH
+  const halfH = fontSize / 2 + padV
+  return {
+    cx: item.position.x + halfW,
+    cy: item.position.y + halfH,
+    rx: halfW,
+    ry: halfH,
+  }
 }
 
 // ─── ZoomControls (minimal Apple-style) ───────────────────────────────────────
@@ -37,12 +55,69 @@ function ZoomControls({ scale, onZoom }) {
   )
 }
 
+// ─── ChunkBackground — SVG goo metaball strokes ───────────────────────────────
+function ChunkBackground({ items }) {
+  const active = items.filter((i) => !i.completed && !i.deferred && i.chunkId)
+  const chunks = {}
+  active.forEach((item) => {
+    if (!chunks[item.chunkId]) chunks[item.chunkId] = []
+    chunks[item.chunkId].push(item)
+  })
+  const entries = Object.entries(chunks).filter(([, m]) => m.length >= 2)
+  if (entries.length === 0) return null
+
+  return (
+    <svg
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 0 }}
+    >
+      <defs>
+        {/* Single shared goo filter — blur then alpha-threshold to merge overlapping strokes */}
+        <filter id="chunk-goo" filterUnits="objectBoundingBox" x="-120%" y="-120%" width="340%" height="340%" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="blur" />
+          <feColorMatrix in="blur" type="matrix"
+            values="1 0 0 0 0
+                    0 1 0 0 0
+                    0 0 1 0 0
+                    0 0 0 22 -10"
+          />
+        </filter>
+      </defs>
+
+      {entries.map(([chunkId, members]) => {
+        const color = getChunkColor(chunkId)
+        return (
+          <g key={chunkId} filter="url(#chunk-goo)">
+            {members.map((item) => {
+              const { cx, cy, rx, ry } = bubbleMetrics(item)
+              return (
+                <ellipse
+                  key={item.id}
+                  cx={cx}
+                  cy={cy}
+                  rx={rx + 2}
+                  ry={ry + 2}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={28}
+                  strokeOpacity={0.92}
+                />
+              )
+            })}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
 // ─── BubbleNode ───────────────────────────────────────────────────────────────
-function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, scale }) {
+function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoubleClick, scale }) {
   const { updatePosition, updateChunk } = useAppStore()
   const allItems = useAppStore((s) => s.items)
   const [dragDelta, setDragDelta] = useState({ x: 0, y: 0 })
   const dragging = useRef(false)
+  const clickCount = useRef(0)
+  const clickTimer = useRef(null)
 
   const { level } = getUrgencyInfo(item.deadline)
   const bStyle = getBubbleStyle(level)
@@ -50,7 +125,6 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, scale 
   const fontSize = Math.round(13 * bStyle.scale * 0.95)
   const padV = Math.round(8 * bStyle.scale)
   const padH = Math.round(16 * bStyle.scale)
-  const cColor = item.chunkId ? getChunkColor(item.chunkId) : null
 
   const checkProximity = useCallback((id, newPos) => {
     const THRESHOLD = 110
@@ -75,6 +149,17 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, scale 
     e.stopPropagation()
     onSelect()
     onDragStart()
+
+    // Double-click detection via rapid pointer-down
+    clickCount.current += 1
+    if (clickCount.current === 1) {
+      clickTimer.current = setTimeout(() => { clickCount.current = 0 }, 300)
+    } else if (clickCount.current === 2) {
+      clearTimeout(clickTimer.current)
+      clickCount.current = 0
+      onDoubleClick?.()
+      return
+    }
 
     const startX = e.clientX
     const startY = e.clientY
@@ -109,7 +194,7 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, scale 
 
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
-  }, [item.position.x, item.position.y, item.id, scale, onSelect, onDragStart, onDragEnd, updatePosition, checkProximity])
+  }, [item.position.x, item.position.y, item.id, scale, onSelect, onDragStart, onDragEnd, onDoubleClick, updatePosition, checkProximity])
 
   const isDraggingNow = dragging.current
 
@@ -135,19 +220,13 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, scale 
           opacity: bStyle.opacity,
           backdropFilter: isUrgent ? 'none' : 'blur(22px)',
           WebkitBackdropFilter: isUrgent ? 'none' : 'blur(22px)',
-          border: isUrgent ? 'none' : '1px solid rgba(255,255,255,0.22)',
+          border: isUrgent ? 'none' : '1px solid rgba(255,255,255,0.18)',
           boxShadow: isDraggingNow
-            ? `0 20px 60px rgba(0,0,0,0.38), ${isUrgent ? '0 0 28px rgba(192,254,55,0.55)' : '0 0 0 1px rgba(255,255,255,0.25)'}`
+            ? `0 20px 60px rgba(0,0,0,0.38)`
             : isUrgent
             ? '0 0 28px rgba(192,254,55,0.55)'
-            : cColor
-            ? `0 0 14px ${cColor}55, 0 4px 20px rgba(0,0,0,0.25)`
-            : '0 2px 12px rgba(0,0,0,0.22)',
-          outline: isSelected
-            ? '2px solid rgba(255,255,255,0.75)'
-            : cColor
-            ? `2px solid ${cColor}`
-            : '2px solid transparent',
+            : '0 2px 14px rgba(0,0,0,0.20)',
+          outline: isSelected ? '2px solid rgba(255,255,255,0.75)' : '2px solid transparent',
           outlineOffset: 4,
           cursor: isDraggingNow ? 'grabbing' : 'grab',
           position: 'relative',
@@ -158,6 +237,78 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, scale 
         {item.mainKeyword}
       </div>
     </div>
+  )
+}
+
+// ─── BubbleDetailPopup ────────────────────────────────────────────────────────
+function BubbleDetailPopup({ item, panOffset, scale, onClose }) {
+  const { level, label } = getUrgencyInfo(item.deadline)
+  const isUrgent = ['overdue', 'critical', 'high'].includes(level)
+  const { cx, cy, ry } = bubbleMetrics(item)
+
+  // Convert world center to artboard coordinates
+  const screenX = cx * scale + panOffset.x
+  const screenY = (cy - ry) * scale + panOffset.y - 12  // above bubble top edge
+
+  const deadlineStr = item.deadline
+    ? new Date(item.deadline).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : null
+
+  return (
+    <motion.div
+      style={{
+        position: 'absolute',
+        left: screenX,
+        top: screenY,
+        transform: 'translate(-50%, -100%)',
+        zIndex: 40,
+        pointerEvents: 'auto',
+        minWidth: 200,
+        maxWidth: 280,
+      }}
+      initial={{ opacity: 0, y: 10, scale: 0.94 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 6, scale: 0.94 }}
+      transition={{ type: 'spring', damping: 24, stiffness: 360 }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div style={dpStyles.card}>
+        {/* Header */}
+        <div style={dpStyles.header}>
+          <div style={dpStyles.headerLeft}>
+            {isUrgent && <span style={dpStyles.urgentDot} />}
+            <span style={{ ...dpStyles.keyword, color: isUrgent ? '#C0FE37' : '#fff' }}>
+              {item.mainKeyword}
+            </span>
+          </div>
+          <button style={dpStyles.closeBtn} onClick={onClose}>×</button>
+        </div>
+
+        {/* Sub-keywords */}
+        {item.subKeywords.length > 0 && (
+          <div style={dpStyles.subRow}>
+            {item.subKeywords.map((sk) => (
+              <span key={sk.id} style={dpStyles.subChip}>{sk.text}</span>
+            ))}
+          </div>
+        )}
+
+        {/* Meta row */}
+        <div style={dpStyles.metaRow}>
+          <span style={{ ...dpStyles.metaBadge, background: item.type === 'idea' ? 'rgba(136,174,219,0.18)' : 'rgba(255,255,255,0.10)', color: item.type === 'idea' ? '#88AEDB' : 'rgba(255,255,255,0.55)', borderColor: item.type === 'idea' ? 'rgba(136,174,219,0.25)' : 'rgba(255,255,255,0.12)' }}>
+            {item.type === 'idea' ? 'Idea' : 'Task'}
+          </span>
+          {deadlineStr && (
+            <span style={{ ...dpStyles.metaBadge, background: isUrgent ? 'rgba(255,100,100,0.12)' : 'rgba(255,255,255,0.08)', color: isUrgent ? '#FF7070' : 'rgba(255,255,255,0.45)', borderColor: isUrgent ? 'rgba(255,100,100,0.22)' : 'rgba(255,255,255,0.10)' }}>
+              {label} · {deadlineStr}
+            </span>
+          )}
+        </div>
+
+        {/* Arrow pointing down */}
+        <div style={dpStyles.arrow} />
+      </div>
+    </motion.div>
   )
 }
 
@@ -342,7 +493,7 @@ function SwipeableKeywordCard({ item, stackIdx, isTop, isUrgent, onComplete, onS
 // ─── SwipeableCardStack ───────────────────────────────────────────────────────
 function SwipeableCardStack({ items }) {
   const { completeItem, updateItem } = useAppStore()
-  const [filter, setFilter]   = useState('active')
+  const [filter, setFilter]    = useState('active')
   const [topIndex, setTopIndex] = useState(0)
 
   const sorted = useMemo(() => {
@@ -370,8 +521,7 @@ function SwipeableCardStack({ items }) {
   const advance = useCallback(() => setTopIndex((i) => i + 1), [])
 
   const visibleSlice = sorted.slice(topIndex, topIndex + 3)
-  const remaining    = sorted.length - topIndex
-  const allDone      = remaining <= 0
+  const allDone      = sorted.length - topIndex <= 0
 
   const FILTERS = [
     { id: 'active', label: 'Active' },
@@ -464,8 +614,10 @@ export default function MindmapPage() {
   scaleRef.current = scale
   const containerRef = useRef(null)
 
-  // ── Bubble selection ──
-  const [selectedId, setSelectedId] = useState(null)
+  // ── Bubble selection & detail popup ──
+  const [selectedId, setSelectedId]   = useState(null)
+  const [detailItemId, setDetailItemId] = useState(null)
+  const detailItem = detailItemId ? items.find((i) => i.id === detailItemId) ?? null : null
 
   // ── Input state ──
   const [step, setStep] = useState('idle')
@@ -480,7 +632,7 @@ export default function MindmapPage() {
     if (step !== 'idle') inputRef.current?.focus()
   }, [step])
 
-  // ── Wheel zoom (passive:false required for preventDefault) ──
+  // ── Wheel zoom ──
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -502,7 +654,6 @@ export default function MindmapPage() {
     return () => el.removeEventListener('wheel', handleWheel)
   }, [])
 
-  // ── Zoom toward viewport center (slider) ──
   const zoomToCenter = useCallback((next) => {
     const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
     const cx = (containerRef.current?.clientWidth  ?? window.innerWidth)  / 2
@@ -518,6 +669,7 @@ export default function MindmapPage() {
   const handlePointerDown = useCallback((e) => {
     if (isDraggingBubble.current) return
     setSelectedId(null)
+    setDetailItemId(null)
     isPanning.current = true
     lastPointer.current = { x: e.clientX, y: e.clientY }
   }, [])
@@ -617,11 +769,11 @@ export default function MindmapPage() {
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
       >
-        {/* Zoom controls — top-left, minimal */}
         <ZoomControls scale={scale} onZoom={zoomToCenter} />
 
         {/* Canvas world */}
         <div style={{ ...mStyles.world, transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})` }}>
+          <ChunkBackground items={activeItems} />
           {activeItems.map((item) => (
             <BubbleNode
               key={item.id}
@@ -629,11 +781,25 @@ export default function MindmapPage() {
               scale={scale}
               isSelected={selectedId === item.id}
               onSelect={() => setSelectedId(item.id)}
+              onDoubleClick={() => setDetailItemId((prev) => prev === item.id ? null : item.id)}
               onDragStart={() => { isDraggingBubble.current = true; isPanning.current = false }}
               onDragEnd={() => { setTimeout(() => { isDraggingBubble.current = false }, 50) }}
             />
           ))}
         </div>
+
+        {/* Bubble detail popup — artboard coordinate space */}
+        <AnimatePresence>
+          {detailItem && (
+            <BubbleDetailPopup
+              key={detailItem.id}
+              item={detailItem}
+              panOffset={panOffset}
+              scale={scale}
+              onClose={() => setDetailItemId(null)}
+            />
+          )}
+        </AnimatePresence>
 
         {/* Empty hint */}
         {activeItems.length === 0 && (
@@ -645,10 +811,8 @@ export default function MindmapPage() {
           </div>
         )}
 
-        {/* Bottom input area — center-floating fixed width */}
+        {/* Bottom input area */}
         <div style={mStyles.bottomArea} onPointerDown={(e) => e.stopPropagation()}>
-
-          {/* Sub-keyword chip preview */}
           <AnimatePresence>
             {step === 'sub' && (
               <motion.div
@@ -678,14 +842,12 @@ export default function MindmapPage() {
             )}
           </AnimatePresence>
 
-          {/* Deadline toast */}
           <AnimatePresence>
             {showToast && (
               <DeadlineToast onSelect={handleDeadlineSelect} onSkip={() => doAdd(null)} />
             )}
           </AnimatePresence>
 
-          {/* Input row: pill + standalone CTA */}
           <div style={mStyles.inputRow}>
             <div style={mStyles.inputPill} onClick={() => { if (step === 'idle') setStep('main') }}>
               <div style={ipStyles.typePill}>
@@ -710,7 +872,6 @@ export default function MindmapPage() {
                 style={mStyles.inputField}
               />
             </div>
-
             <motion.button
               style={mStyles.ctaBtn}
               whileHover={{ scale: 1.08 }}
@@ -744,10 +905,10 @@ const mStyles = {
     position: 'relative',
     overflow: 'hidden',
     borderRadius: 20,
-    background: 'rgba(255,255,255,0.05)',
-    backdropFilter: 'blur(12px)',
-    WebkitBackdropFilter: 'blur(12px)',
-    border: '1px solid rgba(255,255,255,0.09)',
+    background: 'rgba(255,255,255,0.04)',
+    backdropFilter: 'blur(24px)',
+    WebkitBackdropFilter: 'blur(24px)',
+    border: '1px solid rgba(255,255,255,0.07)',
     cursor: 'grab',
   },
   world: {
@@ -785,10 +946,10 @@ const mStyles = {
     flex: 1,
     height: 44,
     alignItems: 'center',
-    background: 'rgba(255,255,255,0.12)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,0.18)',
+    background: 'rgba(255,255,255,0.10)',
+    backdropFilter: 'blur(28px)',
+    WebkitBackdropFilter: 'blur(28px)',
+    border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 9999,
     display: 'flex',
     gap: 8,
@@ -830,9 +991,9 @@ const mStyles = {
 const ipStyles = {
   toast: {
     background: 'rgba(10,20,60,0.88)',
-    backdropFilter: 'blur(28px)',
-    WebkitBackdropFilter: 'blur(28px)',
-    border: '1px solid rgba(255,255,255,0.18)',
+    backdropFilter: 'blur(32px)',
+    WebkitBackdropFilter: 'blur(32px)',
+    border: '1px solid rgba(255,255,255,0.10)',
     borderRadius: 24,
     boxShadow: '0 8px 36px rgba(0,0,0,0.40)',
     display: 'flex',
@@ -852,15 +1013,15 @@ const ipStyles = {
     width: 56,
     padding: '10px 0 8px',
     borderRadius: 16,
-    border: '1px solid rgba(255,255,255,0.12)',
-    background: 'rgba(255,255,255,0.07)',
+    border: '1px solid rgba(255,255,255,0.09)',
+    background: 'rgba(255,255,255,0.06)',
     cursor: 'pointer',
     transition: 'background 0.15s, border-color 0.15s',
     flexShrink: 0,
   },
   dayBtnActive: {
     background: '#1E54BA',
-    border: '1px solid rgba(100,140,255,0.5)',
+    border: '1px solid rgba(100,140,255,0.4)',
     boxShadow: '0 4px 16px rgba(30,84,186,0.45)',
   },
   dayWeekday: {
@@ -880,7 +1041,7 @@ const ipStyles = {
     lineHeight: 1,
   },
   dayBadge: {
-    background: 'rgba(255,255,255,0.08)',
+    background: 'rgba(255,255,255,0.07)',
     borderRadius: 9999,
     color: 'rgba(255,255,255,0.40)',
     fontFamily: "'Rethink Sans', sans-serif",
@@ -902,7 +1063,7 @@ const ipStyles = {
     padding: '4px 8px',
     textDecoration: 'underline',
     textUnderlineOffset: 3,
-    textDecorationColor: 'rgba(255,255,255,0.12)',
+    textDecorationColor: 'rgba(255,255,255,0.10)',
   },
   bubbleRow: { display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' },
   mainBubble: {
@@ -918,10 +1079,10 @@ const ipStyles = {
   },
   subBubble: {
     alignItems: 'center',
-    background: 'rgba(255,255,255,0.14)',
+    background: 'rgba(255,255,255,0.12)',
     backdropFilter: 'blur(12px)',
     WebkitBackdropFilter: 'blur(12px)',
-    border: '1px solid rgba(255,255,255,0.25)',
+    border: '1px solid rgba(255,255,255,0.16)',
     borderRadius: 9999,
     color: 'rgba(255,255,255,0.85)',
     display: 'inline-flex',
@@ -938,7 +1099,7 @@ const ipStyles = {
     lineHeight: 1, padding: '0 2px',
   },
   typePill: {
-    background: 'rgba(255,255,255,0.10)',
+    background: 'rgba(255,255,255,0.08)',
     borderRadius: 9999,
     display: 'flex',
     gap: 2,
@@ -961,7 +1122,7 @@ const ipStyles = {
   typeBtnActive: { background: '#C0FE37', color: '#000' },
 }
 
-// ─── Zoom controls styles (minimal floating) ──────────────────────────────────
+// ─── Zoom controls styles ─────────────────────────────────────────────────────
 const zcStyles = {
   wrap: {
     position: 'absolute',
@@ -992,6 +1153,112 @@ const zcStyles = {
   },
 }
 
+// ─── Detail popup styles ──────────────────────────────────────────────────────
+const dpStyles = {
+  card: {
+    background: 'rgba(8,16,48,0.88)',
+    backdropFilter: 'blur(36px)',
+    WebkitBackdropFilter: 'blur(36px)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 18,
+    boxShadow: '0 12px 40px rgba(0,0,0,0.50)',
+    padding: '14px 16px 16px',
+    position: 'relative',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 10,
+  },
+  headerLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+    flex: 1,
+    minWidth: 0,
+  },
+  urgentDot: {
+    width: 7,
+    height: 7,
+    borderRadius: '50%',
+    background: '#C0FE37',
+    boxShadow: '0 0 6px rgba(192,254,55,0.7)',
+    flexShrink: 0,
+  },
+  keyword: {
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 15,
+    fontWeight: 800,
+    letterSpacing: '-0.01em',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  closeBtn: {
+    background: 'rgba(255,255,255,0.08)',
+    border: 'none',
+    borderRadius: 9999,
+    color: 'rgba(255,255,255,0.45)',
+    cursor: 'pointer',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 14,
+    fontWeight: 500,
+    height: 22,
+    lineHeight: 1,
+    width: 22,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  subRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 5,
+    marginBottom: 10,
+  },
+  subChip: {
+    background: 'rgba(255,255,255,0.08)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 9999,
+    color: 'rgba(255,255,255,0.62)',
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 11,
+    fontWeight: 500,
+    padding: '3px 10px',
+    display: 'inline-block',
+  },
+  metaRow: {
+    display: 'flex',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  metaBadge: {
+    border: '1px solid',
+    borderRadius: 9999,
+    fontFamily: "'Rethink Sans', sans-serif",
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: '0.03em',
+    padding: '3px 9px',
+    display: 'inline-block',
+  },
+  // Small downward triangle caret
+  arrow: {
+    position: 'absolute',
+    bottom: -7,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    width: 0,
+    height: 0,
+    borderLeft: '7px solid transparent',
+    borderRight: '7px solid transparent',
+    borderTop: '7px solid rgba(8,16,48,0.88)',
+  },
+}
+
 // ─── Right column styles ──────────────────────────────────────────────────────
 const rStyles = {
   rightCol: {
@@ -1005,10 +1272,10 @@ const rStyles = {
   // Dashboard
   dashboard: {
     borderRadius: 20,
-    background: 'rgba(200,208,240,0.14)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,0.16)',
+    background: 'rgba(200,208,240,0.10)',
+    backdropFilter: 'blur(36px)',
+    WebkitBackdropFilter: 'blur(36px)',
+    border: '1px solid rgba(255,255,255,0.08)',
     padding: '16px 18px',
     flexShrink: 0,
     display: 'flex',
@@ -1100,7 +1367,7 @@ const rStyles = {
     textTransform: 'uppercase',
   },
   panelTitle: {
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(255,255,255,0.40)',
     fontSize: 10,
     fontWeight: 700,
     letterSpacing: '0.08em',
@@ -1108,15 +1375,15 @@ const rStyles = {
     fontFamily: "'Rethink Sans', sans-serif",
   },
 
-  // Swipeable card stack (list panel)
+  // Swipeable card stack
   listPanel: {
     flex: 1,
     minHeight: 0,
     borderRadius: 20,
-    background: 'rgba(65,80,138,0.20)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,0.10)',
+    background: 'rgba(50,65,120,0.16)',
+    backdropFilter: 'blur(36px)',
+    WebkitBackdropFilter: 'blur(36px)',
+    border: '1px solid rgba(255,255,255,0.07)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -1131,9 +1398,9 @@ const rStyles = {
   filterPills: { display: 'flex', gap: 4 },
   filterBtn: {
     background: 'transparent',
-    border: '1px solid rgba(255,255,255,0.10)',
+    border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: 9999,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.32)',
     cursor: 'pointer',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 10,
@@ -1142,8 +1409,8 @@ const rStyles = {
     transition: 'all 0.15s',
   },
   filterBtnActive: {
-    background: 'rgba(192,254,55,0.12)',
-    border: '1px solid rgba(192,254,55,0.30)',
+    background: 'rgba(192,254,55,0.10)',
+    border: '1px solid rgba(192,254,55,0.25)',
     color: '#C0FE37',
   },
   stackProgress: {
@@ -1151,7 +1418,7 @@ const rStyles = {
     flexShrink: 0,
   },
   stackProgressText: {
-    color: 'rgba(255,255,255,0.22)',
+    color: 'rgba(255,255,255,0.20)',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 10,
     fontWeight: 600,
@@ -1168,10 +1435,10 @@ const rStyles = {
     top: 0,
     left: 0,
     right: 0,
-    background: 'rgba(255,255,255,0.09)',
-    backdropFilter: 'blur(16px)',
-    WebkitBackdropFilter: 'blur(16px)',
-    border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(255,255,255,0.07)',
+    backdropFilter: 'blur(28px)',
+    WebkitBackdropFilter: 'blur(28px)',
+    border: '1px solid rgba(255,255,255,0.09)',
     borderRadius: 16,
     padding: '14px 14px 10px',
     userSelect: 'none',
@@ -1206,8 +1473,8 @@ const rStyles = {
     fontSize: 11,
   },
   stackTypeBadge: {
-    background: 'rgba(136,174,219,0.15)',
-    border: '1px solid rgba(136,174,219,0.20)',
+    background: 'rgba(136,174,219,0.12)',
+    border: '1px solid rgba(136,174,219,0.16)',
     borderRadius: 9999,
     color: '#88AEDB',
     fontFamily: "'Rethink Sans', sans-serif",
@@ -1220,7 +1487,7 @@ const rStyles = {
     justifyContent: 'space-between',
   },
   stackHint: {
-    color: 'rgba(255,255,255,0.18)',
+    color: 'rgba(255,255,255,0.16)',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 9,
     fontWeight: 600,
@@ -1237,14 +1504,14 @@ const rStyles = {
     top: 10,
   },
   swipeBadgeLeft: {
-    background: 'rgba(255,180,50,0.18)',
-    border: '1px solid rgba(255,180,50,0.30)',
+    background: 'rgba(255,180,50,0.15)',
+    border: '1px solid rgba(255,180,50,0.25)',
     color: 'rgba(255,190,60,0.90)',
     left: 10,
   },
   swipeBadgeRight: {
-    background: 'rgba(192,254,55,0.15)',
-    border: '1px solid rgba(192,254,55,0.30)',
+    background: 'rgba(192,254,55,0.12)',
+    border: '1px solid rgba(192,254,55,0.25)',
     color: '#C0FE37',
     right: 10,
   },
@@ -1263,7 +1530,7 @@ const rStyles = {
     fontWeight: 700,
   },
   stackEmptyText: {
-    color: 'rgba(255,255,255,0.30)',
+    color: 'rgba(255,255,255,0.28)',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 12,
     fontWeight: 500,
@@ -1271,9 +1538,9 @@ const rStyles = {
   },
   stackResetBtn: {
     background: 'transparent',
-    border: '1px solid rgba(255,255,255,0.12)',
+    border: '1px solid rgba(255,255,255,0.10)',
     borderRadius: 9999,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.32)',
     cursor: 'pointer',
     fontFamily: "'Rethink Sans', sans-serif",
     fontSize: 11,
