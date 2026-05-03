@@ -97,7 +97,7 @@ function ZoomControls({ scale, onZoom }) {
   )
 }
 
-// ─── ChunkBackground — frosted white offset outline via SVG goo ───────────────
+// ─── ChunkBackground — single solid merged fill via SVG goo ──────────────────
 function ChunkBackground({ items }) {
   const active = items.filter((i) => !i.completed && !i.deferred && i.chunkId)
   const chunks = {}
@@ -108,50 +108,34 @@ function ChunkBackground({ items }) {
   const entries = Object.entries(chunks).filter(([, m]) => m.length >= 2)
   if (entries.length === 0) return null
 
-  const PAD = 10
+  // Uniform offset from each bubble's border; rx follows the bubble's own pill radius
+  const PAD = 14
 
   return (
     <svg
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 0 }}
     >
       <defs>
-        {/* Goo: blur then sharp alpha-threshold — merges adjacent expanded pill outlines */}
-        <filter id="chunk-goo" filterUnits="objectBoundingBox" x="-60%" y="-60%" width="220%" height="220%" colorInterpolationFilters="sRGB">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="blur" />
+        {/*
+          Single-pass goo: blur expands each pill, threshold snaps back to a sharp
+          solid edge. Overlapping pills merge into ONE continuous filled shape —
+          no holes, no double border.
+        */}
+        <filter id="chunk-goo" filterUnits="objectBoundingBox" x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur" />
           <feColorMatrix in="blur" type="matrix"
             values="1 0 0 0 0
                     0 1 0 0 0
                     0 0 1 0 0
-                    0 0 0 24 -11"
+                    0 0 0 28 -13"
           />
         </filter>
       </defs>
 
       {entries.map(([chunkId, members]) => (
-        // Low-opacity white group: goo filter merges outlines into one continuous frosted border
-        <g key={chunkId} filter="url(#chunk-goo)" opacity={0.22}>
-          {members.map((item) => {
-            const { cx, cy, rx, ry } = bubbleMetrics(item)
-            return (
-              <rect
-                key={item.id}
-                x={cx - rx - PAD}
-                y={cy - ry - PAD}
-                width={(rx + PAD) * 2}
-                height={(ry + PAD) * 2}
-                rx={ry + PAD}
-                fill="none"
-                stroke="white"
-                strokeWidth={22}
-              />
-            )
-          })}
-        </g>
-      ))}
-
-      {/* Second pass: subtle fill so no gap appears between bubble edge and stroke border */}
-      {entries.map(([chunkId, members]) => (
-        <g key={`fill-${chunkId}`} filter="url(#chunk-goo)" opacity={0.07}>
+        // One layer, fill only — goo merges all pills into a single solid area.
+        // The natural edge of the merged shape is the group border (no stroke needed).
+        <g key={chunkId} filter="url(#chunk-goo)" opacity={0.20}>
           {members.map((item) => {
             const { cx, cy, rx, ry } = bubbleMetrics(item)
             return (
