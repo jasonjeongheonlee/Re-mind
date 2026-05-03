@@ -8,14 +8,56 @@ const MAX_SCALE = 4.0
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const URGENCY_ORDER = { overdue: 0, critical: 1, high: 2, medium: 3, low: 4, none: 5 }
 
-function getChunkColor(chunkId) {
-  let hash = 0
-  for (let i = 0; i < chunkId.length; i++) {
-    hash = ((hash << 5) - hash) + chunkId.charCodeAt(i)
-    hash |= 0
+function getBubbleSize(item) {
+  const m = bubbleMetrics(item)
+  return { w: m.rx * 2, h: m.ry * 2 }
+}
+
+// Push dragged bubble out of all overlapping bubbles (AABB, up to 4 passes)
+function resolveOverlap(draggedItem, proposedPos, allItems) {
+  const { w: dW, h: dH } = getBubbleSize(draggedItem)
+  let rx = proposedPos.x, ry = proposedPos.y
+  const others = allItems.filter((i) => !i.completed && !i.deferred && i.id !== draggedItem.id)
+  for (let pass = 0; pass < 4; pass++) {
+    let anyOverlap = false
+    for (const other of others) {
+      const { w: oW, h: oH } = getBubbleSize(other)
+      const ox = other.position.x, oy = other.position.y
+      const overlapX = Math.max(0, Math.min(rx + dW, ox + oW) - Math.max(rx, ox))
+      const overlapY = Math.max(0, Math.min(ry + dH, oy + oH) - Math.max(ry, oy))
+      if (overlapX > 0 && overlapY > 0) {
+        anyOverlap = true
+        if (overlapX <= overlapY) rx += (rx + dW / 2 < ox + oW / 2) ? -overlapX : overlapX
+        else                       ry += (ry + dH / 2 < oy + oH / 2) ? -overlapY : overlapY
+      }
+    }
+    if (!anyOverlap) break
   }
-  const hue = Math.abs(hash) % 360
-  return `hsl(${hue}, 60%, 68%)`
+  return { x: rx, y: ry }
+}
+
+const SNAP_GAP = 22
+
+// Snap to 0 gap against the nearest bubble if within SNAP_GAP
+function snapIfClose(draggedItem, pos, allItems) {
+  const { w: dW, h: dH } = getBubbleSize(draggedItem)
+  const others = allItems.filter((i) => !i.completed && !i.deferred && i.id !== draggedItem.id)
+  let best = null, bestDist = Infinity
+  for (const other of others) {
+    const { w: oW, h: oH } = getBubbleSize(other)
+    const ox = other.position.x, oy = other.position.y
+    const gapX = Math.max(0, Math.max(pos.x, ox) - Math.min(pos.x + dW, ox + oW))
+    const gapY = Math.max(0, Math.max(pos.y, oy) - Math.min(pos.y + dH, oy + oH))
+    const dist = Math.sqrt(gapX * gapX + gapY * gapY)
+    if (dist < SNAP_GAP && dist < bestDist) {
+      bestDist = dist
+      const dCx = pos.x + dW / 2, oCx = ox + oW / 2
+      const dCy = pos.y + dH / 2, oCy = oy + oH / 2
+      if (gapX <= gapY) best = { x: dCx < oCx ? ox - dW : ox + oW, y: pos.y }
+      else              best = { x: pos.x, y: dCy < oCy ? oy - dH : oy + oH }
+    }
+  }
+  return best ?? pos
 }
 
 // Estimate bubble pill geometry in world coordinates
@@ -55,7 +97,7 @@ function ZoomControls({ scale, onZoom }) {
   )
 }
 
-// ─── ChunkBackground — SVG goo metaball strokes ───────────────────────────────
+// ─── ChunkBackground — frosted white offset outline via SVG goo ───────────────
 function ChunkBackground({ items }) {
   const active = items.filter((i) => !i.completed && !i.deferred && i.chunkId)
   const chunks = {}
@@ -66,46 +108,46 @@ function ChunkBackground({ items }) {
   const entries = Object.entries(chunks).filter(([, m]) => m.length >= 2)
   if (entries.length === 0) return null
 
+  const PAD = 10
+
   return (
     <svg
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 0 }}
     >
       <defs>
-        {/* Single shared goo filter — blur then alpha-threshold to merge overlapping strokes */}
-        <filter id="chunk-goo" filterUnits="objectBoundingBox" x="-120%" y="-120%" width="340%" height="340%" colorInterpolationFilters="sRGB">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="blur" />
+        {/* Goo: blur then sharp alpha-threshold — merges adjacent expanded pill outlines */}
+        <filter id="chunk-goo" filterUnits="objectBoundingBox" x="-60%" y="-60%" width="220%" height="220%" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="blur" />
           <feColorMatrix in="blur" type="matrix"
             values="1 0 0 0 0
                     0 1 0 0 0
                     0 0 1 0 0
-                    0 0 0 22 -10"
+                    0 0 0 24 -11"
           />
         </filter>
       </defs>
 
-      {entries.map(([chunkId, members]) => {
-        const color = getChunkColor(chunkId)
-        return (
-          <g key={chunkId} filter="url(#chunk-goo)">
-            {members.map((item) => {
-              const { cx, cy, rx, ry } = bubbleMetrics(item)
-              return (
-                <ellipse
-                  key={item.id}
-                  cx={cx}
-                  cy={cy}
-                  rx={rx + 2}
-                  ry={ry + 2}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={28}
-                  strokeOpacity={0.92}
-                />
-              )
-            })}
-          </g>
-        )
-      })}
+      {entries.map(([chunkId, members]) => (
+        // Low-opacity white group: goo filter merges outlines into one continuous frosted border
+        <g key={chunkId} filter="url(#chunk-goo)" opacity={0.22}>
+          {members.map((item) => {
+            const { cx, cy, rx, ry } = bubbleMetrics(item)
+            return (
+              <rect
+                key={item.id}
+                x={cx - rx - PAD}
+                y={cy - ry - PAD}
+                width={(rx + PAD) * 2}
+                height={(ry + PAD) * 2}
+                rx={ry + PAD}
+                fill="none"
+                stroke="white"
+                strokeWidth={22}
+              />
+            )
+          })}
+        </g>
+      ))}
     </svg>
   )
 }
@@ -127,18 +169,23 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
   const padH = Math.round(16 * bStyle.scale)
 
   const checkProximity = useCallback((id, newPos) => {
-    const THRESHOLD = 110
+    const GROUP_GAP = 8  // group when bounding-box gap < 8px
+    const draggedItem = allItems.find((i) => i.id === id)
+    if (!draggedItem) return
+    const { w: dW, h: dH } = getBubbleSize(draggedItem)
     const active = allItems.filter((i) => !i.completed && !i.deferred && i.id !== id)
-    let closest = null, closestDist = Infinity
+    let closestGroup = null, closestGap = Infinity
     active.forEach((other) => {
-      const dx = newPos.x - other.position.x
-      const dy = newPos.y - other.position.y
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      if (dist < THRESHOLD && dist < closestDist) { closestDist = dist; closest = other }
+      const { w: oW, h: oH } = getBubbleSize(other)
+      const ox = other.position.x, oy = other.position.y
+      const gapX = Math.max(0, Math.max(newPos.x, ox) - Math.min(newPos.x + dW, ox + oW))
+      const gapY = Math.max(0, Math.max(newPos.y, oy) - Math.min(newPos.y + dH, oy + oH))
+      const gap = gapX + gapY
+      if (gap < GROUP_GAP && gap < closestGap) { closestGap = gap; closestGroup = other }
     })
-    if (closest) {
-      const chunkId = closest.chunkId || `chunk-${closest.id}`
-      updateChunk(closest.id, chunkId)
+    if (closestGroup) {
+      const chunkId = closestGroup.chunkId || `chunk-${closestGroup.id}`
+      updateChunk(closestGroup.id, chunkId)
       updateChunk(id, chunkId)
     } else {
       updateChunk(id, null)
@@ -174,7 +221,12 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
         moved = true
         dragging.current = true
       }
-      if (moved) setDragDelta({ x: dx, y: dy })
+      if (moved) {
+        // Prevent overlapping other bubbles in real time
+        const proposed = { x: origX + dx, y: origY + dy }
+        const resolved = resolveOverlap(item, proposed, allItems)
+        setDragDelta({ x: resolved.x - origX, y: resolved.y - origY })
+      }
     }
 
     const onUp = (ev) => {
@@ -183,7 +235,10 @@ function BubbleNode({ item, onDragStart, onDragEnd, isSelected, onSelect, onDoub
       if (moved) {
         const dx = (ev.clientX - startX) / scale
         const dy = (ev.clientY - startY) / scale
-        const newPos = { x: origX + dx, y: origY + dy }
+        // Resolve overlap, then snap to touch if within SNAP_GAP
+        let newPos = resolveOverlap(item, { x: origX + dx, y: origY + dy }, allItems)
+        newPos = snapIfClose(item, newPos, allItems)
+        newPos = resolveOverlap(item, newPos, allItems)  // re-check after snap
         updatePosition(item.id, newPos)
         checkProximity(item.id, newPos)
       }
